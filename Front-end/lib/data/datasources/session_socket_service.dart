@@ -22,7 +22,7 @@ class SessionSocketService {
   StreamController<Grupo>? _controller;
 
   SessionSocketService({required TokenStorage tokenStorage})
-      : _tokenStorage = tokenStorage;
+    : _tokenStorage = tokenStorage;
 
   /// Conecta e devolve o stream de grupos em que o usuário foi adicionado.
   Stream<Grupo> conectar() {
@@ -44,6 +44,7 @@ class SessionSocketService {
           .enableForceNew()
           .disableAutoConnect()
           .setAuth({'token': token})
+          .setExtraHeaders({'ngrok-skip-browser-warning': 'true'})
           .build(),
     );
     _socket = socket;

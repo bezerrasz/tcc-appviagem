@@ -13,6 +13,9 @@ class GrupoRemoteDatasource {
         _dio = dio ??
             Dio(BaseOptions(
               baseUrl: ApiConfig.baseUrl,
+              headers: {
+              'ngrok-skip-browser-warning': 'true',
+              },
               connectTimeout: const Duration(seconds: 8),
               receiveTimeout: const Duration(seconds: 8),
             )) {

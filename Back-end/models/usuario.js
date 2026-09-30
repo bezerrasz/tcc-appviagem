@@ -54,11 +54,6 @@ module.exports = (sequelize, DataTypes) => {
       // Saldo em reais. Informado manualmente pelo usuario na tela Inicio (sem
       // transacao bancaria). DECIMAL vem como string do MySQL: quem monta o
       // JSON converte com Number().
-      valor: {
-        type: DataTypes.DECIMAL(10, 2),
-        allowNull: false,
-        defaultValue: 0,
-      },
     },
     {
       tableName: 'usuario',

@@ -22,7 +22,7 @@ class ChatSocketService {
   StreamController<CaronaResumo>? _caronaController;
 
   ChatSocketService({required TokenStorage tokenStorage})
-      : _tokenStorage = tokenStorage;
+    : _tokenStorage = tokenStorage;
 
   /// Caronas atualizadas (ex: aceitas) na sala conectada. Disponível após
   /// [conectar]; o controller da tela escuta para atualizar os cards.
@@ -57,6 +57,7 @@ class ChatSocketService {
           .enableForceNew()
           .disableAutoConnect()
           .setAuth({'token': token})
+          .setExtraHeaders({'ngrok-skip-browser-warning': 'true'})
           .build(),
     );
     _socket = socket;

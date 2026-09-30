@@ -16,6 +16,8 @@ const carroRoutes = require('./routes/carro/carro');
 
 const app = express();
 
+app.set('trust proxy', 1);
+
 // 2. Criamos o Escudo Global (Evita lentidão e queda da API inteira)
 const globalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // Janela de 15 minutos
