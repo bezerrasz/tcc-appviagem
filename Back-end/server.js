@@ -25,6 +25,12 @@ const globalLimiter = rateLimit({
   message: { error: 'Muitas requisições deste IP. Tente novamente mais tarde.' }
 });
 
+app.use(cors({
+  origin: '*', 
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'ngrok-skip-browser-warning']
+}));
+
 // 3. Criamos o Escudo de Autenticação (Evita força bruta no login)
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // Janela de 15 minutos
