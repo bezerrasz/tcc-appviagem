@@ -42,13 +42,13 @@ app.use(cors());
 app.use(express.json());
 
 // 4. Aplicamos o escudo global no aplicativo todo, ANTES de abrir as rotas
-app.use(globalLimiter);
+//app.use(globalLimiter);
 
 app.use(healthRoutes);
 app.use(usuarioRoutes);
 
 // 5. Aplicamos o escudo mais forte APENAS nas rotas de login/cadastro
-app.use(authLimiter, authRoutes); 
+app.use(authRoutes); 
 
 app.use(grupoRoutes);
 app.use(caronaRoutes);

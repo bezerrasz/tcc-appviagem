@@ -103,7 +103,7 @@ function montarDetalhe(carona) {
   const custos = calcularCustos({
     kmRodados: carona.kmRodados,
     valorLitro: carona.valorLitro,
-    passageiros: ocupadas,
+    passageiros: ocupadas + 1, // motorista incluso
   });
 
   return {

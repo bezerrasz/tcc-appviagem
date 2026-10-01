@@ -78,7 +78,7 @@ function carroPayload(carro) {
     cor: carro.cor,
     placa: carro.placa,
     capacidade: carro.capacidade,
-    consumoMedio: carro.consumoMedio,
+    consumoMedio: Number(carro.consumoMedio) || 0, // A conversão mágica acontece aqui!
     ativo: carro.ativo,
   };
 }
