@@ -138,7 +138,9 @@ class _CardSaldoState extends State<_CardSaldo> {
             TextField(
               controller: controller,
               autofocus: true,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
               decoration: const InputDecoration(
                 labelText: 'Valor',
                 prefixText: 'R\$ ',
@@ -162,9 +164,9 @@ class _CardSaldoState extends State<_CardSaldo> {
 
     final novo = parseMoeda(digitado);
     if (novo == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Valor inválido.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Valor inválido.')));
       return;
     }
 
@@ -192,15 +194,17 @@ class _CardSaldoState extends State<_CardSaldo> {
               color: AppColors.primarySoft,
               borderRadius: BorderRadius.circular(AppRadius.md),
             ),
-            child: const Icon(Icons.account_balance_wallet_outlined,
-                color: AppColors.primary),
+            child: const Icon(
+              Icons.account_balance_wallet_outlined,
+              color: AppColors.primary,
+            ),
           ),
           const SizedBox(width: AppSpacing.md),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Meu saldo', style: AppTypography.caption),
+                const Text('Meu saldo', style: AppTypography.caption),
                 const SizedBox(height: 2),
                 Text(
                   formatMoeda(widget.user.valor),
