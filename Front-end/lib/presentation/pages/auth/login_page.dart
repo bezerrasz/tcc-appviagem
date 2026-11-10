@@ -40,12 +40,12 @@ class _LoginPageState extends State<LoginPage> {
   Future<void> _handleLogin() async {
     if (!_formKey.currentState!.validate()) return;
     FocusScope.of(context).unfocus();
+    setState(() => _submitting = false);
     setState(() => _submitting = true);
     await context.read<AuthController>().login(
-          identifier: _identifierController.text,
-          password: _senhaController.text,
-        );
-    // Em caso de sucesso, o AuthGate troca de tela e este widget é descartado.
+      identifier: _identifierController.text,
+      password: _senhaController.text,
+    );
     if (mounted) setState(() => _submitting = false);
   }
 
@@ -65,12 +65,13 @@ class _LoginPageState extends State<LoginPage> {
     final erro = context.watch<AuthController>().error;
 
     return Scaffold(
+      backgroundColor: const Color(0xFFF8FAFC),
       body: SingleChildScrollView(
         child: Column(
           children: [
             const AuthHero(
               icon: Icons.directions_car_filled,
-              title: 'Compartilhe Caronas',
+              title: 'Share a Ride',
               subtitle: 'Conecte-se e economize nas suas viagens',
             ),
             Padding(

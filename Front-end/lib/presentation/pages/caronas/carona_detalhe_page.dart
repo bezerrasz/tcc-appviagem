@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:test_tcc/core/config/app_constants.dart';
 import 'package:test_tcc/core/theme/app_colors.dart';
@@ -13,9 +14,7 @@ import 'package:test_tcc/presentation/widgets/carona_status_badge.dart';
 import 'package:test_tcc/presentation/widgets/state_views.dart';
 import 'package:test_tcc/presentation/widgets/status_badge.dart';
 
-/// Detalhe de uma carona: motorista + carro + passageiros. O motorista aprova/
-/// recusa pedidos e conclui/cancela; o passageiro pede vaga / cancela o pedido.
-/// Espera um [CaronaDetalheController] já provido acima na árvore.
+/// Detalhe de uma carona: motorista + carro + custos/Pix reais + passageiros.
 class CaronaDetalhePage extends StatefulWidget {
   const CaronaDetalhePage({super.key});
 
@@ -24,6 +23,8 @@ class CaronaDetalhePage extends StatefulWidget {
 }
 
 class _CaronaDetalhePageState extends State<CaronaDetalhePage> {
+  bool _comprovanteEnviado = false;
+
   String _data(DateTime d) {
     final dd = d.day.toString().padLeft(2, '0');
     final mm = d.month.toString().padLeft(2, '0');
@@ -49,19 +50,19 @@ class _CaronaDetalhePageState extends State<CaronaDetalhePage> {
   ) async {
     final ok = await c.decidir(idPassageiro: p.idUsuario, aprovar: aprovar);
     if (!mounted || ok) return;
-    // Em caso de falha (ex.: carona lotada) mostra o motivo do backend.
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(c.error ?? 'Não foi possível decidir o pedido.')),
     );
   }
 
-  /// Motorista informa km rodados + valor do litro. O total da viagem e o
-  /// rateio por passageiro são calculados no backend.
   Future<void> _editarCustos(CaronaDetalheController c) async {
     final custos = c.detalhe?.custos;
-    final kmController = TextEditingController(text: _decimal(custos?.kmRodados));
-    final litroController =
-        TextEditingController(text: _decimal(custos?.valorLitro));
+    final kmController = TextEditingController(
+      text: _decimal(custos?.kmRodados),
+    );
+    final litroController = TextEditingController(
+      text: _decimal(custos?.valorLitro),
+    );
 
     final confirmou = await showDialog<bool>(
       context: context,
@@ -72,15 +73,17 @@ class _CaronaDetalhePageState extends State<CaronaDetalhePage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              'Informe quanto rodou e quanto pagou no litro ao abastecer. '
-              'O total é dividido entre os passageiros aprovados.',
+              'Informe a distância percorrida (km) e o valor pago no litro '
+              'do combustível para calcular o rateio real entre os passageiros.',
               style: AppTypography.caption,
             ),
             const SizedBox(height: AppSpacing.md),
             TextField(
               controller: kmController,
               autofocus: true,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
               decoration: const InputDecoration(
                 labelText: 'Km rodados',
                 suffixText: 'km',
@@ -89,7 +92,9 @@ class _CaronaDetalhePageState extends State<CaronaDetalhePage> {
             const SizedBox(height: AppSpacing.md),
             TextField(
               controller: litroController,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
               decoration: const InputDecoration(
                 labelText: 'Valor do litro',
                 prefixText: 'R\$ ',
@@ -116,14 +121,18 @@ class _CaronaDetalhePageState extends State<CaronaDetalhePage> {
     if (km == null ||
         km < AppConstants.caronaKmMin ||
         km > AppConstants.caronaKmMax) {
-      _aviso('Informe os km rodados (até ${AppConstants.caronaKmMax.toInt()} km).');
+      _aviso(
+        'Informe os km rodados (até ${AppConstants.caronaKmMax.toInt()} km).',
+      );
       return;
     }
     if (litro == null ||
         litro < AppConstants.caronaValorLitroMin ||
         litro > AppConstants.caronaValorLitroMax) {
-      _aviso('Informe o valor do litro (até '
-          '${formatMoeda(AppConstants.caronaValorLitroMax)}).');
+      _aviso(
+        'Informe o valor do litro (até '
+        '${formatMoeda(AppConstants.caronaValorLitroMax)}).',
+      );
       return;
     }
 
@@ -131,14 +140,14 @@ class _CaronaDetalhePageState extends State<CaronaDetalhePage> {
     _feedback(c, ok, 'Custos da viagem atualizados.');
   }
 
-  /// 37.5 → "37,50" (vazio quando ainda não informado).
   String _decimal(double? valor) =>
       valor == null ? '' : valor.toStringAsFixed(2).replaceAll('.', ',');
 
   void _aviso(String mensagem) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(mensagem)));
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(mensagem)));
   }
 
   Future<void> _concluir(CaronaDetalheController c) async {
@@ -196,9 +205,30 @@ class _CaronaDetalhePageState extends State<CaronaDetalhePage> {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content:
-            Text(ok ? sucesso : (c.error ?? 'Não foi possível concluir a ação.')),
+        content: Text(
+          ok ? sucesso : (c.error ?? 'Não foi possível concluir a ação.'),
+        ),
       ),
+    );
+  }
+
+  void _copiarChavePix(String? chave) {
+    if (chave == null || chave.isEmpty) {
+      _aviso('O motorista não cadastrou uma chave Pix.');
+      return;
+    }
+    Clipboard.setData(ClipboardData(text: chave));
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Chave Pix copiada para a área de transferência!'),
+      ),
+    );
+  }
+
+  void _marcarComprovanteEnviado() {
+    setState(() => _comprovanteEnviado = true);
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Pagamento Pix confirmado com sucesso!')),
     );
   }
 
@@ -212,34 +242,37 @@ class _CaronaDetalhePageState extends State<CaronaDetalhePage> {
       body: c.loading
           ? const LoadingView()
           : detalhe == null
-              ? ErrorView(
-                  message: c.error ?? 'Não foi possível carregar a carona.',
-                  onRetry: c.iniciar,
-                )
-              : Column(
-                  children: [
-                    Expanded(
-                      child: RefreshIndicator(
-                        color: AppColors.primary,
-                        onRefresh: c.iniciar,
-                        child: _Conteudo(
-                          controller: c,
-                          detalhe: detalhe,
-                          dataLabel: _data(detalhe.data),
-                          onDecidir: (p, aprovar) => _decidir(c, p, aprovar),
-                          onEditarCustos: () => _editarCustos(c),
-                        ),
-                      ),
-                    ),
-                    _AcoesBar(
+          ? ErrorView(
+              message: c.error ?? 'Não foi possível carregar a carona.',
+              onRetry: c.iniciar,
+            )
+          : Column(
+              children: [
+                Expanded(
+                  child: RefreshIndicator(
+                    color: AppColors.primary,
+                    onRefresh: c.iniciar,
+                    child: _Conteudo(
                       controller: c,
-                      onPedir: () => _pedir(c),
-                      onCancelarPedido: () => _cancelarPedido(c),
-                      onConcluir: () => _concluir(c),
-                      onCancelar: () => _cancelar(c),
+                      detalhe: detalhe,
+                      dataLabel: _data(detalhe.data),
+                      comprovanteEnviado: _comprovanteEnviado,
+                      onDecidir: (p, aprovar) => _decidir(c, p, aprovar),
+                      onEditarCustos: () => _editarCustos(c),
+                      onCopiarPix: _copiarChavePix,
+                      onConfirmarPix: _marcarComprovanteEnviado,
                     ),
-                  ],
+                  ),
                 ),
+                _AcoesBar(
+                  controller: c,
+                  onPedir: () => _pedir(c),
+                  onCancelarPedido: () => _cancelarPedido(c),
+                  onConcluir: () => _concluir(c),
+                  onCancelar: () => _cancelar(c),
+                ),
+              ],
+            ),
     );
   }
 }
@@ -313,7 +346,8 @@ class _AcoesBar extends StatelessWidget {
                   ),
                 ),
               ),
-            if (podeCancelar && podeConcluir) const SizedBox(width: AppSpacing.md),
+            if (podeCancelar && podeConcluir)
+              const SizedBox(width: AppSpacing.md),
             if (podeConcluir)
               Expanded(
                 child: FilledButton.icon(
@@ -342,15 +376,21 @@ class _Conteudo extends StatelessWidget {
   final CaronaDetalheController controller;
   final CaronaDetalhe detalhe;
   final String dataLabel;
+  final bool comprovanteEnviado;
   final void Function(PassageiroCarona, bool aprovar) onDecidir;
   final VoidCallback onEditarCustos;
+  final ValueChanged<String?> onCopiarPix;
+  final VoidCallback onConfirmarPix;
 
   const _Conteudo({
     required this.controller,
     required this.detalhe,
     required this.dataLabel,
+    required this.comprovanteEnviado,
     required this.onDecidir,
     required this.onEditarCustos,
+    required this.onCopiarPix,
+    required this.onConfirmarPix,
   });
 
   @override
@@ -361,7 +401,6 @@ class _Conteudo extends StatelessWidget {
     return ListView(
       padding: const EdgeInsets.all(AppSpacing.xl),
       children: [
-        // Cabeçalho: grupo + status + data + destino.
         Row(
           children: [
             Expanded(
@@ -382,8 +421,11 @@ class _Conteudo extends StatelessWidget {
           const SizedBox(height: AppSpacing.sm),
           Row(
             children: [
-              const Icon(Icons.place_outlined,
-                  size: 18, color: AppColors.primary),
+              const Icon(
+                Icons.place_outlined,
+                size: 18,
+                color: AppColors.primary,
+              ),
               const SizedBox(width: AppSpacing.xs),
               Expanded(
                 child: Text(detalhe.destino!, style: AppTypography.label),
@@ -393,7 +435,6 @@ class _Conteudo extends StatelessWidget {
         ],
         const SizedBox(height: AppSpacing.xl),
 
-        // Motorista.
         Text('Motorista', style: AppTypography.label),
         const SizedBox(height: AppSpacing.sm),
         _PessoaCard(
@@ -402,7 +443,6 @@ class _Conteudo extends StatelessWidget {
         ),
         const SizedBox(height: AppSpacing.xl),
 
-        // Carro (atrelado no anúncio).
         if (detalhe.carro != null) ...[
           Text('Carro', style: AppTypography.label),
           const SizedBox(height: AppSpacing.sm),
@@ -415,18 +455,25 @@ class _Conteudo extends StatelessWidget {
                     color: AppColors.primarySoft,
                     borderRadius: BorderRadius.circular(AppRadius.md),
                   ),
-                  child:
-                      const Icon(Icons.directions_car, color: AppColors.primary),
+                  child: const Icon(
+                    Icons.directions_car,
+                    color: AppColors.primary,
+                  ),
                 ),
                 const SizedBox(width: AppSpacing.md),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(detalhe.carro!.descricao, style: AppTypography.label),
+                      Text(
+                        detalhe.carro!.descricao,
+                        style: AppTypography.label,
+                      ),
                       const SizedBox(height: 2),
-                      Text('${detalhe.carro!.detalhe} • ${detalhe.carro!.placa}',
-                          style: AppTypography.caption),
+                      Text(
+                        '${detalhe.carro!.detalhe} • ${detalhe.carro!.placa}',
+                        style: AppTypography.caption,
+                      ),
                     ],
                   ),
                 ),
@@ -436,25 +483,29 @@ class _Conteudo extends StatelessWidget {
           const SizedBox(height: AppSpacing.xl),
         ],
 
-        // Custos da viagem e rateio.
-        Text('Custos da viagem', style: AppTypography.label),
+        Text('Custos da viagem e Pix', style: AppTypography.label),
         const SizedBox(height: AppSpacing.sm),
         _CustosCard(
           custos: detalhe.custos,
+          souMotorista: souMotorista,
           podeEditar: controller.podeEditarCustos,
+          comprovanteEnviado: comprovanteEnviado,
+          motoristaNome: detalhe.motoristaNome ?? 'Motorista',
+          motoristaPix: null, // Opcional se houver chave no model
           onEditar: onEditarCustos,
+          onCopiarPix: onCopiarPix,
+          onConfirmarPix: onConfirmarPix,
         ),
         const SizedBox(height: AppSpacing.xl),
 
-        // Passageiros + vagas.
         Row(
           children: [
-            Expanded(
-              child: Text('Passageiros', style: AppTypography.label),
-            ),
+            Expanded(child: Text('Passageiros', style: AppTypography.label)),
             if (detalhe.lugares != null)
-              Text('${detalhe.ocupadas} de ${detalhe.lugares} vagas',
-                  style: AppTypography.caption),
+              Text(
+                '${detalhe.ocupadas} de ${detalhe.lugares} vagas',
+                style: AppTypography.caption,
+              ),
           ],
         ),
         const SizedBox(height: AppSpacing.sm),
@@ -466,7 +517,8 @@ class _Conteudo extends StatelessWidget {
               padding: const EdgeInsets.only(bottom: AppSpacing.md),
               child: _PassageiroCard(
                 passageiro: p,
-                podeDecidir: souMotorista &&
+                podeDecidir:
+                    souMotorista &&
                     detalhe.status == StatusCarona.aberta &&
                     p.status == StatusPassageiro.pendente,
                 decidindo: controller.estaDecidindo(p.idUsuario),
@@ -480,18 +532,27 @@ class _Conteudo extends StatelessWidget {
   }
 }
 
-/// Custos da viagem: combustível (km ÷ consumo médio × R$/litro) + taxa por km,
-/// e o quanto cada passageiro aprovado paga. Só o motorista edita, enquanto a
-/// carona está aberta. Nada é debitado — o valor é apenas informativo.
 class _CustosCard extends StatelessWidget {
   final CustosCarona? custos;
+  final bool souMotorista;
   final bool podeEditar;
+  final bool comprovanteEnviado;
+  final String motoristaNome;
+  final String? motoristaPix;
   final VoidCallback onEditar;
+  final ValueChanged<String?> onCopiarPix;
+  final VoidCallback onConfirmarPix;
 
   const _CustosCard({
     required this.custos,
+    required this.souMotorista,
     required this.podeEditar,
+    required this.comprovanteEnviado,
+    required this.motoristaNome,
+    required this.motoristaPix,
     required this.onEditar,
+    required this.onCopiarPix,
+    required this.onConfirmarPix,
   });
 
   @override
@@ -503,8 +564,10 @@ class _CustosCard extends StatelessWidget {
         onTap: podeEditar ? onEditar : null,
         child: Row(
           children: [
-            const Icon(Icons.local_gas_station_outlined,
-                color: AppColors.textMuted),
+            const Icon(
+              Icons.local_gas_station_outlined,
+              color: AppColors.textMuted,
+            ),
             const SizedBox(width: AppSpacing.md),
             Expanded(
               child: Text(
@@ -522,6 +585,9 @@ class _CustosCard extends StatelessWidget {
     }
 
     final porPassageiro = c.valorPorPassageiro;
+    final saldoMotorista = porPassageiro != null
+        ? porPassageiro * c.passageiros
+        : 0.0;
 
     return AppCard(
       child: Column(
@@ -544,12 +610,10 @@ class _CustosCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: AppSpacing.sm),
+          _LinhaCusto(label: 'Distância', valor: '${_numero(c.kmRodados)} km'),
           _LinhaCusto(
-            label: 'Distância',
-            valor: '${_numero(c.kmRodados)} km',
-          ),
-          _LinhaCusto(
-            label: 'Litro (${_numero(c.litros)} L a ${formatMoeda(c.valorLitro)})',
+            label:
+                'Combustível (${_numero(c.litros)} L a ${formatMoeda(c.valorLitro)})',
             valor: formatMoeda(c.combustivel),
           ),
           _LinhaCusto(
@@ -569,22 +633,48 @@ class _CustosCard extends StatelessWidget {
                     'Sem passageiros aprovados: o total ainda não tem como ser dividido.',
                     style: AppTypography.caption,
                   )
-                : Row(
+                : Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Expanded(
-                        child: Text(
-                          'Por passageiro (${c.passageiros})',
-                          style: AppTypography.label,
-                        ),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              'Por passageiro (${c.passageiros})',
+                              style: AppTypography.label,
+                            ),
+                          ),
+                          Text(
+                            formatMoeda(porPassageiro),
+                            style: const TextStyle(
+                              color: AppColors.primary,
+                              fontSize: 18,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ],
                       ),
-                      Text(
-                        formatMoeda(porPassageiro),
-                        style: const TextStyle(
-                          color: AppColors.primary,
-                          fontSize: 18,
-                          fontWeight: FontWeight.w700,
+                      if (souMotorista) ...[
+                        const Divider(height: AppSpacing.lg),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                'Saldo total a receber',
+                                style: AppTypography.caption,
+                              ),
+                            ),
+                            Text(
+                              formatMoeda(saldoMotorista),
+                              style: const TextStyle(
+                                color: AppColors.success,
+                                fontSize: 16,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ],
                         ),
-                      ),
+                      ],
                     ],
                   ),
           ),
@@ -593,12 +683,72 @@ class _CustosCard extends StatelessWidget {
             'Consumo médio considerado: ${_numero(c.consumoMedio)} km/L.',
             style: AppTypography.caption,
           ),
+          if (!souMotorista && porPassageiro != null) ...[
+            const SizedBox(height: AppSpacing.md),
+            Container(
+              padding: const EdgeInsets.all(AppSpacing.md),
+              decoration: BoxDecoration(
+                color: AppColors.background,
+                borderRadius: BorderRadius.circular(AppRadius.md),
+                border: Border.all(color: AppColors.border),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(Icons.pix, color: AppColors.primary, size: 20),
+                      const SizedBox(width: AppSpacing.sm),
+                      Expanded(
+                        child: Text(
+                          'Pix para $motoristaNome',
+                          style: AppTypography.label,
+                        ),
+                      ),
+                      if (comprovanteEnviado)
+                        const StatusBadge(
+                          label: 'Pago',
+                          color: AppColors.success,
+                          icon: Icons.check_circle_outline,
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: () => onCopiarPix(motoristaPix),
+                          icon: const Icon(Icons.copy, size: 16),
+                          label: const Text('Copiar Chave Pix'),
+                        ),
+                      ),
+                      const SizedBox(width: AppSpacing.sm),
+                      Expanded(
+                        child: FilledButton.icon(
+                          onPressed: comprovanteEnviado ? null : onConfirmarPix,
+                          icon: Icon(
+                            comprovanteEnviado
+                                ? Icons.check
+                                : Icons.receipt_long_outlined,
+                            size: 16,
+                          ),
+                          label: Text(
+                            comprovanteEnviado ? 'Confirmado' : 'Confirmar Pix',
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
         ],
       ),
     );
   }
 
-  /// 37.5 → "37,5"; 10.0 → "10".
   String _numero(double valor) {
     final texto = valor.toStringAsFixed(2);
     return texto
@@ -636,8 +786,9 @@ class _PessoaCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final inicial =
-        nome.trim().isEmpty ? '?' : nome.trim().characters.first.toUpperCase();
+    final inicial = nome.trim().isEmpty
+        ? '?'
+        : nome.trim().characters.first.toUpperCase();
     return AppCard(
       child: Row(
         children: [
@@ -667,8 +818,6 @@ class _PessoaCard extends StatelessWidget {
   }
 }
 
-/// Linha de um passageiro: nome + status do pedido. Para o motorista, mostra
-/// os botões Aprovar/Recusar quando o pedido está pendente.
 class _PassageiroCard extends StatelessWidget {
   final PassageiroCarona passageiro;
   final bool podeDecidir;
@@ -685,19 +834,19 @@ class _PassageiroCard extends StatelessWidget {
   });
 
   ({Color cor, IconData icone}) get _visual => switch (passageiro.status) {
-        StatusPassageiro.pendente => (
-            cor: AppColors.warning,
-            icone: Icons.schedule
-          ),
-        StatusPassageiro.aprovado => (
-            cor: AppColors.success,
-            icone: Icons.check_circle_outline
-          ),
-        StatusPassageiro.recusado => (
-            cor: AppColors.error,
-            icone: Icons.cancel_outlined
-          ),
-      };
+    StatusPassageiro.pendente => (
+      cor: AppColors.warning,
+      icone: Icons.schedule,
+    ),
+    StatusPassageiro.aprovado => (
+      cor: AppColors.success,
+      icone: Icons.check_circle_outline,
+    ),
+    StatusPassageiro.recusado => (
+      cor: AppColors.error,
+      icone: Icons.cancel_outlined,
+    ),
+  };
 
   @override
   Widget build(BuildContext context) {

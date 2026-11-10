@@ -53,7 +53,8 @@ class _RegisterPageState extends State<RegisterPage> {
     final hoje = DateTime.now();
     final escolhida = await showDatePicker(
       context: context,
-      initialDate: _dataNascimento ?? DateTime(hoje.year - 18, hoje.month, hoje.day),
+      initialDate:
+          _dataNascimento ?? DateTime(hoje.year - 18, hoje.month, hoje.day),
       firstDate: DateTime(1900),
       lastDate: hoje,
       helpText: 'Data de nascimento',
@@ -70,14 +71,14 @@ class _RegisterPageState extends State<RegisterPage> {
     FocusScope.of(context).unfocus();
     setState(() => _submitting = true);
     final user = await context.read<AuthController>().register(
-          name: _nomeController.text,
-          email: _emailController.text,
-          password: _senhaController.text,
-          confirmPassword: _confirmarController.text,
-          cpf: _cpfController.text,
-          dataNascimento: _dataNascimento,
-          tipo: _tipo,
-        );
+      name: _nomeController.text,
+      email: _emailController.text,
+      password: _senhaController.text,
+      confirmPassword: _confirmarController.text,
+      cpf: _cpfController.text,
+      dataNascimento: _dataNascimento,
+      tipo: _tipo,
+    );
     if (!mounted) return;
     setState(() => _submitting = false);
     if (user != null) Navigator.pop<bool>(context, true);
