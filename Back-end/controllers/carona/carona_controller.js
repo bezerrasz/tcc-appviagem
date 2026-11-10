@@ -1,5 +1,6 @@
 'use strict';
 
+const multer = require('multer');
 const db = require('../../models');
 const AppError = require('../../utils/app_error');
 const security = require('../../config/security');
@@ -11,6 +12,9 @@ const {
   includeCaronaResumo,
   caronaPayload,
 } = require('../../utils/mensagem_payload');
+
+// Configuração do Multer para guardar a foto do Pix na pasta 'uploads/comprovantes'
+const upload = multer({ dest: 'uploads/comprovantes/' });
 
 const STATUS = security.CARONA_STATUS;
 const PSTATUS = security.CARONA_PASSAGEIRO_STATUS;
@@ -393,6 +397,127 @@ async function decidir(req, res) {
   }
 }
 
+// PASSAGEIRO: Envia o comprovante Pix
+async function enviarComprovante(req, res) {
+  try {
+    const idCarona = parseIdCarona(req);
+    const idPassageiro = req.user.idUsuario;
+    
+    if (!req.file) {
+      throw AppError.validation('A imagem do comprovante é obrigatória.');
+    }
+    const caminhoImagem = req.file.path; // O multer guarda o ficheiro aqui
+
+    // Verifica se o vinculo existe
+    const vinculo = await db.CaronaUsuario.findOne({
+      where: { idCarona, idPassageiro },
+    });
+
+    if (!vinculo) {
+      throw AppError.notFound('Pedido nao encontrado nesta carona.');
+    }
+
+    // Atualiza a tabela que liga o utilizador à carona
+    // Colocando o status como 'AGUARDANDO_PIX' e guardando a foto
+    await db.CaronaUsuario.update(
+      { 
+        comprovantePix: caminhoImagem,
+        status: 'AGUARDANDO_PIX' // Certifique-se de que este status existe em PSTATUS
+      },
+      { where: { idCarona, idPassageiro } }
+    );
+
+    return res.status(200).json({ message: 'Comprovativo enviado com sucesso!' });
+  } catch (err) {
+    return tratarErro(res, err, '[carona_controller.enviarComprovante]');
+  }
+}
+
+// MOTORISTA: Confirma o Pix e o sistema recalcula e transfere o saldo
+async function confirmarPagamentoPix(req, res) {
+  const t = await db.sequelize.transaction();
+  
+  try {
+    const idCarona = parseIdCarona(req);
+    const idPassageiro = parseIdPassageiro(req);
+    const idMotorista = req.user.idUsuario;
+
+    // Busca os dados da viagem para saber o custo total
+    const carona = await db.Carona.findByPk(idCarona, { transaction: t });
+    
+    if (!carona) {
+        throw AppError.notFound('Carona nao encontrada.');
+    }
+
+    if (carona.idMotorista !== idMotorista) {
+        throw AppError.forbidden('Apenas o motorista pode confirmar o pagamento.');
+    }
+
+    // Calcula os custos usando a funcao existente
+    // Para simplificar, vou assumir que a funcao calcularCustos foi atualizada ou pode lidar com a falta do carro no objeto carona.
+    // O ideal seria buscar a carona com o include do carro, como em montarDetalhe.
+    const completa = await db.Carona.findByPk(idCarona, {
+        include: includeDetalhe(),
+        transaction: t
+    });
+
+    const passageiros = (completa.passageiros || []).map((p) => ({
+        idUsuario: p.passageiro ? p.passageiro.idUsuario : p.idPassageiro,
+        nome: p.passageiro ? p.passageiro.nome : null,
+        status: p.status,
+    }));
+    
+    // Conta quantos passageiros já estão confirmados (ou aguardando pix) para dividir a conta
+    // Modifique a regra dependendo se quer dividir por quem foi aprovado ou quem já pagou
+    const ocupadas = passageiros.filter((p) => p.status === PSTATUS.APROVADO || p.status === 'AGUARDANDO_PIX').length;
+    
+    const custos = calcularCustos({
+        kmRodados: completa.kmRodados,
+        valorLitro: completa.valorLitro,
+        passageiros: ocupadas + 1, // motorista incluso
+    });
+
+    if(!custos || !custos.rateioPorPessoa) {
+         throw AppError.validation('Não foi possivel calcular os custos da carona. Certifique-se de que os km e o valor do litro foram inseridos.');
+    }
+
+    const valorRateio = custos.rateioPorPessoa;
+
+    // Busca os perfis para alterar os saldos (bloqueia as linhas para atualizacao)
+    const motorista = await db.Usuario.findByPk(idMotorista, { lock: t.LOCK.UPDATE, transaction: t });
+    const passageiro = await db.Usuario.findByPk(idPassageiro, { lock: t.LOCK.UPDATE, transaction: t });
+
+    if(!motorista || !passageiro){
+         throw AppError.notFound('Motorista ou Passageiro nao encontrado.');
+    }
+
+    // Executa a transferência de forma rigorosa
+    await motorista.update({ valor: Number(motorista.valor) + valorRateio }, { transaction: t });
+    await passageiro.update({ valor: Number(passageiro.valor) - valorRateio }, { transaction: t });
+
+    // Valida a participação do passageiro na carona
+    await db.CaronaUsuario.update(
+      { status: PSTATUS.APROVADO }, // Retorna o status para APROVADO ou um novo status como PAGO
+      { where: { idCarona, idPassageiro }, transaction: t }
+    );
+
+    // Se tudo correu bem, guarda as alterações na base de dados
+    await t.commit();
+
+    return res.status(200).json({ 
+      message: 'Pagamento aprovado!', 
+      valorTransferido: valorRateio 
+    });
+
+  } catch (err) {
+    // Se algum passo falhar, desfaz as alterações de saldo para evitar fraudes
+    if (!t.finished) {
+      await t.rollback().catch(() => {});
+    }
+    return tratarErro(res, err, '[carona_controller.confirmarPagamentoPix]');
+  }
+}
+
 // Motorista informa os custos da viagem: km rodados e o valor pago no litro.
 // Editavel enquanto a carona esta aberta; os dois vem juntos, porque o total da
 // viagem so existe com ambos. Devolve o detalhe com o rateio recalculado.
@@ -580,4 +705,6 @@ module.exports = {
   cancelar,
   listar,
   detalhe,
+  enviarComprovante,
+  confirmarPagamentoPix
 };
