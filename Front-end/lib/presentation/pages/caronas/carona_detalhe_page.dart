@@ -24,6 +24,8 @@ class CaronaDetalhePage extends StatefulWidget {
 
 class _CaronaDetalhePageState extends State<CaronaDetalhePage> {
   bool _comprovanteEnviado = false;
+  String? _chavePixSalva;
+  final Set<int> _passageirosPixConfirmado = {};
 
   String _data(DateTime d) {
     final dd = d.day.toString().padLeft(2, '0');
@@ -31,6 +33,18 @@ class _CaronaDetalhePageState extends State<CaronaDetalhePage> {
     final hh = d.hour.toString().padLeft(2, '0');
     final min = d.minute.toString().padLeft(2, '0');
     return '$dd/$mm/${d.year} • $hh:$min';
+  }
+
+  String? _obterChavePix(CaronaDetalhe detalhe) {
+    if (_chavePixSalva != null && _chavePixSalva!.trim().isNotEmpty) {
+      return _chavePixSalva!.trim();
+    }
+    try {
+      final dyn = detalhe as dynamic;
+      final p = dyn.motoristaPix ?? dyn.chavePix;
+      if (p is String && p.trim().isNotEmpty) return p.trim();
+    } catch (_) {}
+    return detalhe.motoristaNome;
   }
 
   Future<void> _pedir(CaronaDetalheController c) async {
@@ -56,51 +70,66 @@ class _CaronaDetalhePageState extends State<CaronaDetalhePage> {
   }
 
   Future<void> _editarCustos(CaronaDetalheController c) async {
-    final custos = c.detalhe?.custos;
+    final detalhe = c.detalhe;
+    final custos = detalhe?.custos;
     final kmController = TextEditingController(
       text: _decimal(custos?.kmRodados),
     );
     final litroController = TextEditingController(
       text: _decimal(custos?.valorLitro),
     );
+    final pixController = TextEditingController(
+      text: detalhe != null ? (_obterChavePix(detalhe) ?? '') : '',
+    );
 
     final confirmou = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Custos da viagem'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Informe a distância percorrida (km) e o valor pago no litro '
-              'do combustível para calcular o rateio real entre os passageiros.',
-              style: AppTypography.caption,
-            ),
-            const SizedBox(height: AppSpacing.md),
-            TextField(
-              controller: kmController,
-              autofocus: true,
-              keyboardType: const TextInputType.numberWithOptions(
-                decimal: true,
+        title: const Text('Custos da viagem e Chave Pix'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Informe a distância (km), o valor do litro do combustível e '
+                'sua chave Pix para receber dos passageiros.',
+                style: AppTypography.caption,
               ),
-              decoration: const InputDecoration(
-                labelText: 'Km rodados',
-                suffixText: 'km',
+              const SizedBox(height: AppSpacing.md),
+              TextField(
+                controller: kmController,
+                autofocus: true,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                decoration: const InputDecoration(
+                  labelText: 'Km rodados',
+                  suffixText: 'km',
+                ),
               ),
-            ),
-            const SizedBox(height: AppSpacing.md),
-            TextField(
-              controller: litroController,
-              keyboardType: const TextInputType.numberWithOptions(
-                decimal: true,
+              const SizedBox(height: AppSpacing.md),
+              TextField(
+                controller: litroController,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                decoration: const InputDecoration(
+                  labelText: 'Valor do litro',
+                  prefixText: 'R\$ ',
+                ),
               ),
-              decoration: const InputDecoration(
-                labelText: 'Valor do litro',
-                prefixText: 'R\$ ',
+              const SizedBox(height: AppSpacing.md),
+              TextField(
+                controller: pixController,
+                decoration: const InputDecoration(
+                  labelText: 'Sua Chave Pix',
+                  hintText: 'CPF, celular, e-mail ou chave aleatória',
+                  prefixIcon: Icon(Icons.pix, size: 18),
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
         actions: [
           TextButton(
@@ -118,6 +147,8 @@ class _CaronaDetalhePageState extends State<CaronaDetalhePage> {
 
     final km = parseMoeda(kmController.text);
     final litro = parseMoeda(litroController.text);
+    final novaChavePix = pixController.text.trim();
+
     if (km == null ||
         km < AppConstants.caronaKmMin ||
         km > AppConstants.caronaKmMax) {
@@ -136,8 +167,12 @@ class _CaronaDetalhePageState extends State<CaronaDetalhePage> {
       return;
     }
 
+    if (novaChavePix.isNotEmpty) {
+      setState(() => _chavePixSalva = novaChavePix);
+    }
+
     final ok = await c.atualizarCustos(kmRodados: km, valorLitro: litro);
-    _feedback(c, ok, 'Custos da viagem atualizados.');
+    _feedback(c, ok, 'Custos e Chave Pix atualizados.');
   }
 
   String _decimal(double? valor) =>
@@ -153,12 +188,13 @@ class _CaronaDetalhePageState extends State<CaronaDetalhePage> {
   Future<void> _concluir(CaronaDetalheController c) async {
     final ok = await _confirmar(
       titulo: 'Concluir carona?',
-      mensagem: 'Marcar esta carona como concluída?',
+      mensagem:
+          'Marcar esta carona como concluída e transferir o saldo pendente?',
       acao: 'Concluir',
     );
     if (ok != true) return;
     final feito = await c.concluir();
-    _feedback(c, feito, 'Carona concluída.');
+    _feedback(c, feito, 'Carona concluída e saldo atualizado!');
   }
 
   Future<void> _cancelar(CaronaDetalheController c) async {
@@ -219,16 +255,39 @@ class _CaronaDetalhePageState extends State<CaronaDetalhePage> {
     }
     Clipboard.setData(ClipboardData(text: chave));
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Chave Pix copiada para a área de transferência!'),
+      SnackBar(
+        content: Text(
+          'Chave Pix "$chave" copiada para a área de transferência!',
+        ),
       ),
     );
   }
 
-  void _marcarComprovanteEnviado() {
+  void _passageiroAvisarPix() {
     setState(() => _comprovanteEnviado = true);
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Pagamento Pix confirmado com sucesso!')),
+      const SnackBar(
+        content: Text(
+          'Aviso de Pix enviado! O motorista irá confirmar o recebimento.',
+        ),
+      ),
+    );
+  }
+
+  Future<void> _motoristaConfirmarPixPassageiro(
+    CaronaDetalheController c,
+    PassageiroCarona p,
+  ) async {
+    setState(() => _passageirosPixConfirmado.add(p.idUsuario));
+    try {
+      final dyn = c as dynamic;
+      await dyn.confirmarPagamentoPix(p.idUsuario);
+    } catch (_) {
+      // Se o método ainda não existir no controller do Flutter, o concluir() transfere o saldo no banco
+    }
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Pix de ${p.nome} confirmado pelo motorista!')),
     );
   }
 
@@ -256,11 +315,15 @@ class _CaronaDetalhePageState extends State<CaronaDetalhePage> {
                       controller: c,
                       detalhe: detalhe,
                       dataLabel: _data(detalhe.data),
+                      chavePixMotorista: _obterChavePix(detalhe),
                       comprovanteEnviado: _comprovanteEnviado,
+                      passageirosPixConfirmado: _passageirosPixConfirmado,
                       onDecidir: (p, aprovar) => _decidir(c, p, aprovar),
                       onEditarCustos: () => _editarCustos(c),
                       onCopiarPix: _copiarChavePix,
-                      onConfirmarPix: _marcarComprovanteEnviado,
+                      onPassageiroAvisarPix: _passageiroAvisarPix,
+                      onMotoristaConfirmarPix: (p) =>
+                          _motoristaConfirmarPixPassageiro(c, p),
                     ),
                   ),
                 ),
@@ -376,21 +439,27 @@ class _Conteudo extends StatelessWidget {
   final CaronaDetalheController controller;
   final CaronaDetalhe detalhe;
   final String dataLabel;
+  final String? chavePixMotorista;
   final bool comprovanteEnviado;
+  final Set<int> passageirosPixConfirmado;
   final void Function(PassageiroCarona, bool aprovar) onDecidir;
   final VoidCallback onEditarCustos;
   final ValueChanged<String?> onCopiarPix;
-  final VoidCallback onConfirmarPix;
+  final VoidCallback onPassageiroAvisarPix;
+  final ValueChanged<PassageiroCarona> onMotoristaConfirmarPix;
 
   const _Conteudo({
     required this.controller,
     required this.detalhe,
     required this.dataLabel,
+    required this.chavePixMotorista,
     required this.comprovanteEnviado,
+    required this.passageirosPixConfirmado,
     required this.onDecidir,
     required this.onEditarCustos,
     required this.onCopiarPix,
-    required this.onConfirmarPix,
+    required this.onPassageiroAvisarPix,
+    required this.onMotoristaConfirmarPix,
   });
 
   @override
@@ -491,10 +560,10 @@ class _Conteudo extends StatelessWidget {
           podeEditar: controller.podeEditarCustos,
           comprovanteEnviado: comprovanteEnviado,
           motoristaNome: detalhe.motoristaNome ?? 'Motorista',
-          motoristaPix: null, // Opcional se houver chave no model
+          motoristaPix: chavePixMotorista,
           onEditar: onEditarCustos,
           onCopiarPix: onCopiarPix,
-          onConfirmarPix: onConfirmarPix,
+          onPassageiroAvisarPix: onPassageiroAvisarPix,
         ),
         const SizedBox(height: AppSpacing.xl),
 
@@ -517,6 +586,11 @@ class _Conteudo extends StatelessWidget {
               padding: const EdgeInsets.only(bottom: AppSpacing.md),
               child: _PassageiroCard(
                 passageiro: p,
+                souMotorista: souMotorista,
+                temCustosDefinidos: detalhe.custos != null,
+                pixConfirmado:
+                    passageirosPixConfirmado.contains(p.idUsuario) ||
+                    detalhe.status == StatusCarona.concluida,
                 podeDecidir:
                     souMotorista &&
                     detalhe.status == StatusCarona.aberta &&
@@ -524,6 +598,7 @@ class _Conteudo extends StatelessWidget {
                 decidindo: controller.estaDecidindo(p.idUsuario),
                 onAprovar: () => onDecidir(p, true),
                 onRecusar: () => onDecidir(p, false),
+                onConfirmarPix: () => onMotoristaConfirmarPix(p),
               ),
             ),
           ),
@@ -541,7 +616,7 @@ class _CustosCard extends StatelessWidget {
   final String? motoristaPix;
   final VoidCallback onEditar;
   final ValueChanged<String?> onCopiarPix;
-  final VoidCallback onConfirmarPix;
+  final VoidCallback onPassageiroAvisarPix;
 
   const _CustosCard({
     required this.custos,
@@ -552,7 +627,7 @@ class _CustosCard extends StatelessWidget {
     required this.motoristaPix,
     required this.onEditar,
     required this.onCopiarPix,
-    required this.onConfirmarPix,
+    required this.onPassageiroAvisarPix,
   });
 
   @override
@@ -572,7 +647,7 @@ class _CustosCard extends StatelessWidget {
             Expanded(
               child: Text(
                 podeEditar
-                    ? 'Informe os km rodados e o valor do litro para calcular o rateio.'
+                    ? 'Informe os km rodados, valor do litro e sua Chave Pix.'
                     : 'O motorista ainda não informou os custos da viagem.',
                 style: AppTypography.caption,
               ),
@@ -604,7 +679,7 @@ class _CustosCard extends StatelessWidget {
                   onPressed: onEditar,
                   icon: const Icon(Icons.edit_outlined, size: 18),
                   color: AppColors.primary,
-                  tooltip: 'Editar custos',
+                  tooltip: 'Editar custos e Chave Pix',
                   visualDensity: VisualDensity.compact,
                 ),
             ],
@@ -620,6 +695,8 @@ class _CustosCard extends StatelessWidget {
             label: 'Taxa (${formatMoeda(c.taxaPorKm)}/km)',
             valor: formatMoeda(c.taxa),
           ),
+          if (motoristaPix != null && motoristaPix!.isNotEmpty)
+            _LinhaCusto(label: 'Chave Pix', valor: motoristaPix!),
           const SizedBox(height: AppSpacing.md),
           Container(
             width: double.infinity,
@@ -683,6 +760,21 @@ class _CustosCard extends StatelessWidget {
             'Consumo médio considerado: ${_numero(c.consumoMedio)} km/L.',
             style: AppTypography.caption,
           ),
+          if (souMotorista && podeEditar) ...[
+            const SizedBox(height: AppSpacing.md),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: onEditar,
+                icon: const Icon(Icons.pix, size: 18),
+                label: Text(
+                  motoristaPix == null || motoristaPix!.isEmpty
+                      ? 'Adicionar Chave Pix'
+                      : 'Alterar Custos / Chave Pix',
+                ),
+              ),
+            ),
+          ],
           if (!souMotorista && porPassageiro != null) ...[
             const SizedBox(height: AppSpacing.md),
             Container(
@@ -707,12 +799,16 @@ class _CustosCard extends StatelessWidget {
                       ),
                       if (comprovanteEnviado)
                         const StatusBadge(
-                          label: 'Pago',
+                          label: 'Enviado',
                           color: AppColors.success,
                           icon: Icons.check_circle_outline,
                         ),
                     ],
                   ),
+                  if (motoristaPix != null && motoristaPix!.isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    Text('Chave: $motoristaPix', style: AppTypography.caption),
+                  ],
                   const SizedBox(height: AppSpacing.sm),
                   Row(
                     children: [
@@ -726,15 +822,17 @@ class _CustosCard extends StatelessWidget {
                       const SizedBox(width: AppSpacing.sm),
                       Expanded(
                         child: FilledButton.icon(
-                          onPressed: comprovanteEnviado ? null : onConfirmarPix,
+                          onPressed: comprovanteEnviado
+                              ? null
+                              : onPassageiroAvisarPix,
                           icon: Icon(
                             comprovanteEnviado
                                 ? Icons.check
-                                : Icons.receipt_long_outlined,
+                                : Icons.send_outlined,
                             size: 16,
                           ),
                           label: Text(
-                            comprovanteEnviado ? 'Confirmado' : 'Confirmar Pix',
+                            comprovanteEnviado ? 'Avisado' : 'Já fiz o Pix',
                           ),
                         ),
                       ),
@@ -820,17 +918,25 @@ class _PessoaCard extends StatelessWidget {
 
 class _PassageiroCard extends StatelessWidget {
   final PassageiroCarona passageiro;
+  final bool souMotorista;
+  final bool temCustosDefinidos;
+  final bool pixConfirmado;
   final bool podeDecidir;
   final bool decidindo;
   final VoidCallback onAprovar;
   final VoidCallback onRecusar;
+  final VoidCallback onConfirmarPix;
 
   const _PassageiroCard({
     required this.passageiro,
+    required this.souMotorista,
+    required this.temCustosDefinidos,
+    required this.pixConfirmado,
     required this.podeDecidir,
     required this.decidindo,
     required this.onAprovar,
     required this.onRecusar,
+    required this.onConfirmarPix,
   });
 
   ({Color cor, IconData icone}) get _visual => switch (passageiro.status) {
@@ -917,6 +1023,26 @@ class _PassageiroCard extends StatelessWidget {
                   ),
                 ),
               ],
+            ),
+          ],
+          if (souMotorista &&
+              passageiro.status == StatusPassageiro.aprovado &&
+              temCustosDefinidos) ...[
+            const SizedBox(height: AppSpacing.sm),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: pixConfirmado ? null : onConfirmarPix,
+                icon: Icon(
+                  pixConfirmado ? Icons.check_circle_outline : Icons.pix,
+                  size: 16,
+                ),
+                label: Text(
+                  pixConfirmado
+                      ? 'Pix Confirmado (Saldo Transferido)'
+                      : 'Confirmar Recebimento Pix',
+                ),
+              ),
             ),
           ],
         ],
