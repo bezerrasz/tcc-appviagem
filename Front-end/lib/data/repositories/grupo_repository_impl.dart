@@ -8,8 +8,8 @@ class GrupoRepositoryImpl implements GrupoRepository {
   const GrupoRepositoryImpl(this.remote);
 
   @override
-  Future<Grupo> criar({required String nome, required bool isPrivado}) {
-    return remote.criar(nome: nome, isPrivado: isPrivado);
+  Future<Grupo> criar({required String nome}) {
+    return remote.criar(nome: nome);
   }
 
   @override

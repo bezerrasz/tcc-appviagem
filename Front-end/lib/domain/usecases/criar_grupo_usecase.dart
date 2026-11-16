@@ -7,11 +7,11 @@ class CriarGrupoUseCase {
 
   const CriarGrupoUseCase(this.repository);
 
-  Future<Grupo> call({required String nome, required bool isPrivado}) {
+  Future<Grupo> call({required String nome}) {
     final nomeTrim = nome.trim();
     if (nomeTrim.isEmpty) {
       throw const GrupoNomeObrigatorioFailure();
     }
-    return repository.criar(nome: nomeTrim, isPrivado: isPrivado);
+    return repository.criar(nome: nomeTrim);
   }
 }

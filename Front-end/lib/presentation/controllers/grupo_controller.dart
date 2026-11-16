@@ -53,8 +53,8 @@ class GrupoController extends ChangeNotifier {
 
   /// Cria o grupo e o coloca no topo da lista.
   /// Repassa [GrupoFailure] para a tela exibir o erro no formulário.
-  Future<Grupo> criar({required String nome, required bool isPrivado}) async {
-    final grupo = await _criar(nome: nome, isPrivado: isPrivado);
+  Future<Grupo> criar({required String nome}) async {
+    final grupo = await _criar(nome: nome);
     _grupos = [grupo, ..._grupos];
     notifyListeners();
     return grupo;

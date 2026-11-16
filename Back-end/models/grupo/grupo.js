@@ -17,11 +17,6 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.STRING(120),
         allowNull: false,
       },
-      isPrivado: {
-        type: DataTypes.BOOLEAN,
-        allowNull: false,
-        defaultValue: false,
-      },
       dataCriacao: {
         type: DataTypes.DATE,
         allowNull: false,

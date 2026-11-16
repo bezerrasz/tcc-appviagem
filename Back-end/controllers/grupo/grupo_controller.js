@@ -15,7 +15,7 @@ function validarNome(nome) {
 
 async function criar(req, res) {
   try {
-    const { nome, isPrivado } = req.body;
+    const { nome } = req.body;
     validarNome(nome);
 
     // idUsuarioCriado vem do token (req.user), nunca do corpo.
@@ -24,7 +24,7 @@ async function criar(req, res) {
     // Cria o grupo e ja registra o criador como membro admin (atomico).
     const grupo = await db.sequelize.transaction(async (t) => {
       const novo = await db.Grupo.create(
-        { idUsuarioCriado, nome: nome.trim(), isPrivado: Boolean(isPrivado) },
+        { idUsuarioCriado, nome: nome.trim() },
         { transaction: t },
       );
       await db.GrupoUsuario.create(
@@ -37,7 +37,6 @@ async function criar(req, res) {
     return res.status(201).json({
       idGrupo: grupo.idGrupo,
       nome: grupo.nome,
-      isPrivado: grupo.isPrivado,
       dataCriacao: grupo.dataCriacao,
       ativo: grupo.ativo,
       isAdm: true,
@@ -71,7 +70,6 @@ async function listar(req, res) {
     const grupos = membros.map((m) => ({
       idGrupo: m.grupo.idGrupo,
       nome: m.grupo.nome,
-      isPrivado: m.grupo.isPrivado,
       dataCriacao: m.grupo.dataCriacao,
       isAdm: m.isAdm,
     }));
@@ -165,7 +163,6 @@ async function adicionarMembro(req, res) {
       io.to(`user:${idUsuario}`).emit('grupo:adicionado', {
         idGrupo: grupo.idGrupo,
         nome: grupo.nome,
-        isPrivado: grupo.isPrivado,
         dataCriacao: grupo.dataCriacao,
         isAdm: false,
       });

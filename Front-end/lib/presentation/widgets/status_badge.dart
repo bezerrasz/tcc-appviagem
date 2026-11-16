@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:test_tcc/core/theme/app_colors.dart';
 import 'package:test_tcc/core/theme/app_spacing.dart';
 
-/// Pílula pequena para rótulos de status (Admin, Privado, tipo de perfil...).
+/// Pílula pequena para rótulos de status (Admin, tipo de perfil...).
 class StatusBadge extends StatelessWidget {
   final String label;
   final Color color;

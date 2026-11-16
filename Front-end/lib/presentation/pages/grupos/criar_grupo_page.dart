@@ -1,12 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:test_tcc/core/theme/app_colors.dart';
 import 'package:test_tcc/core/theme/app_spacing.dart';
 import 'package:test_tcc/core/theme/app_typography.dart';
 import 'package:test_tcc/domain/entities/grupo.dart';
 import 'package:test_tcc/domain/failures/grupo_failure.dart';
 import 'package:test_tcc/presentation/controllers/grupo_controller.dart';
-import 'package:test_tcc/presentation/widgets/app_card.dart';
 import 'package:test_tcc/presentation/widgets/app_text_field.dart';
 import 'package:test_tcc/presentation/widgets/error_banner.dart';
 import 'package:test_tcc/presentation/widgets/primary_button.dart';
@@ -21,7 +19,6 @@ class CriarGrupoPage extends StatefulWidget {
 class _CriarGrupoPageState extends State<CriarGrupoPage> {
   final _formKey = GlobalKey<FormState>();
   final _nomeController = TextEditingController();
-  bool _isPrivado = true;
   bool _submitting = false;
   String? _erro;
 
@@ -41,7 +38,6 @@ class _CriarGrupoPageState extends State<CriarGrupoPage> {
     try {
       final grupo = await context.read<GrupoController>().criar(
             nome: _nomeController.text,
-            isPrivado: _isPrivado,
           );
       if (!mounted) return;
       Navigator.pop<Grupo>(context, grupo);
@@ -80,28 +76,6 @@ class _CriarGrupoPageState extends State<CriarGrupoPage> {
                 validator: (v) => (v == null || v.trim().length < 3)
                     ? 'O nome deve ter ao menos 3 caracteres.'
                     : null,
-              ),
-              const SizedBox(height: AppSpacing.lg),
-              AppCard(
-                padding: EdgeInsets.zero,
-                child: SwitchListTile(
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: AppSpacing.lg,
-                    vertical: AppSpacing.xs,
-                  ),
-                  activeThumbColor: AppColors.primary,
-                  title: const Text('Grupo privado', style: AppTypography.label),
-                  subtitle: Text(
-                    _isPrivado
-                        ? 'Só entra quem tiver o convite.'
-                        : 'Qualquer pessoa pode encontrar e entrar.',
-                    style: AppTypography.caption,
-                  ),
-                  value: _isPrivado,
-                  onChanged: _submitting
-                      ? null
-                      : (v) => setState(() => _isPrivado = v),
-                ),
               ),
               if (_erro != null) ...[
                 const SizedBox(height: AppSpacing.lg),

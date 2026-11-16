@@ -32,11 +32,11 @@ class GrupoRemoteDatasource {
     );
   }
 
-  Future<Grupo> criar({required String nome, required bool isPrivado}) async {
+  Future<Grupo> criar({required String nome}) async {
     try {
       final response = await _dio.post(
         '/grupos',
-        data: {'nome': nome, 'isPrivado': isPrivado},
+        data: {'nome': nome},
       );
       return grupoFromJson(response.data as Map<String, dynamic>);
     } on DioException catch (e) {
@@ -83,7 +83,6 @@ Grupo grupoFromJson(Map<String, dynamic> j) {
   return Grupo(
     idGrupo: j['idGrupo'] as int,
     nome: j['nome'] as String,
-    isPrivado: _asBoolGrupo(j['isPrivado']),
     isAdm: _asBoolGrupo(j['isAdm']),
   );
 }

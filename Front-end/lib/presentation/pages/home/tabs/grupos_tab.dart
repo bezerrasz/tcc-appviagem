@@ -151,28 +151,18 @@ class _GrupoCard extends StatelessWidget {
               color: AppColors.primarySoft,
               borderRadius: BorderRadius.circular(AppRadius.md),
             ),
-            child: Icon(
-              grupo.isPrivado ? Icons.lock_outline : Icons.public,
+            child: const Icon(
+              Icons.groups_outlined,
               color: AppColors.primary,
             ),
           ),
           const SizedBox(width: AppSpacing.md),
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  grupo.nome,
-                  style: AppTypography.label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  grupo.isPrivado ? 'Grupo privado' : 'Grupo público',
-                  style: AppTypography.caption,
-                ),
-              ],
+            child: Text(
+              grupo.nome,
+              style: AppTypography.label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
             ),
           ),
           if (grupo.isAdm)
