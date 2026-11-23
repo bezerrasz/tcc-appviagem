@@ -25,6 +25,13 @@ router.patch(
   caronaController.decidir,
 );
 
+// Motorista informa km rodados + valor do litro (base do rateio da viagem).
+router.patch('/caronas/:idCarona/custos', authenticate, caronaController.atualizarCustos);
+
+// Motorista conclui/cancela a carona.
+router.patch('/caronas/:idCarona/concluir', authenticate, caronaController.concluir);
+router.patch('/caronas/:idCarona/cancelar', authenticate, caronaController.cancelar);
+
 // Rotas PIX (Atualizadas)
 router.post('/caronas/:idCarona/pix', authenticate, upload.single('comprovante'), caronaController.enviarComprovante);
 router.post('/caronas/:idCarona/pix/confirmar/:idPassageiro', authenticate, caronaController.confirmarPagamentoPix);
