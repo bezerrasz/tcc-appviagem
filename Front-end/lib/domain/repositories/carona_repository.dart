@@ -36,13 +36,27 @@ abstract class CaronaRepository {
   /// a chave Pix. Retorna o detalhe atualizado.
   Future<CaronaDetalhe> concluir(int idCarona);
 
-  /// Passageiro importa o comprovante do Pix (imagem ou PDF): a pendência é
-  /// dada como paga e os saldos atualizados. Retorna o detalhe atualizado.
+  /// Passageiro importa o comprovante do Pix (imagem ou PDF), ficando pendente
+  /// de confirmação pelo motorista. Retorna o detalhe atualizado.
   Future<CaronaDetalhe> enviarComprovante({
     required int idCarona,
     required List<int> bytes,
     required String nomeArquivo,
     required String mimeType,
+  });
+
+  /// Motorista confirma o recebimento do Pix de um passageiro aprovado após
+  /// conferir o comprovante, atualizando os saldos. Retorna o detalhe.
+  Future<CaronaDetalhe> confirmarPagamento({
+    required int idCarona,
+    required int idPassageiro,
+  });
+
+  /// Motorista recusa um comprovante inválido/errado para liberar novo envio
+  /// pelo passageiro. Retorna o detalhe atualizado.
+  Future<CaronaDetalhe> recusarComprovante({
+    required int idCarona,
+    required int idPassageiro,
   });
 
   /// Arquivo do comprovante de um passageiro.

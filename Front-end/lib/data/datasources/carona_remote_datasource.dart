@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
@@ -124,8 +125,8 @@ class CaronaRemoteDatasource {
     }
   }
 
-  /// Passageiro importa o comprovante do Pix (imagem ou PDF). O backend dá a
-  /// pendência como paga e atualiza os saldos. Retorna o detalhe atualizado.
+  /// Passageiro importa o comprovante do Pix (imagem ou PDF), ficando pendente
+  /// de confirmação pelo motorista. Retorna o detalhe atualizado.
   Future<CaronaDetalhe> enviarComprovante({
     required int idCarona,
     required List<int> bytes,
@@ -148,6 +149,35 @@ class CaronaRemoteDatasource {
           receiveTimeout: const Duration(seconds: 30),
         ),
       );
+      return _detalheFromJson(response.data as Map<String, dynamic>);
+    } on DioException catch (e) {
+      throw _mapError(e);
+    }
+  }
+
+  /// Motorista confirma o recebimento do Pix de um passageiro após conferir o
+  /// comprovante, atualizando os saldos. Retorna o detalhe atualizado.
+  Future<CaronaDetalhe> confirmarPagamento({
+    required int idCarona,
+    required int idPassageiro,
+  }) =>
+      _postDetalhe(
+        '/caronas/$idCarona/passageiros/$idPassageiro/confirmar-pagamento',
+      );
+
+  /// Motorista recusa um comprovante inválido/errado para liberar novo envio
+  /// pelo passageiro. Retorna o detalhe atualizado.
+  Future<CaronaDetalhe> recusarComprovante({
+    required int idCarona,
+    required int idPassageiro,
+  }) =>
+      _postDetalhe(
+        '/caronas/$idCarona/passageiros/$idPassageiro/recusar-comprovante',
+      );
+
+  Future<CaronaDetalhe> _postDetalhe(String path) async {
+    try {
+      final response = await _dio.post(path);
       return _detalheFromJson(response.data as Map<String, dynamic>);
     } on DioException catch (e) {
       throw _mapError(e);
@@ -243,6 +273,7 @@ class CaronaRemoteDatasource {
               cor: carro['cor'] as String,
               placa: carro['placa'] as String,
               capacidade: (carro['capacidade'] as num?)?.toInt() ?? 0,
+              consumoMedio: (carro['consumoMedio'] as num?)?.toDouble(),
             )
           : null,
       lugares: (j['lugares'] as num?)?.toInt(),
@@ -275,6 +306,9 @@ class CaronaRemoteDatasource {
       combustivel: num0('combustivel'),
       taxaPorKm: num0('taxaPorKm'),
       taxa: num0('taxa'),
+      taxaApp: num0('taxaApp'),
+      chavePixApp: raw['chavePixApp'] as String?,
+      recebedorApp: raw['recebedorApp'] as String?,
       total: num0('total'),
       passageiros: (raw['passageiros'] as num?)?.toInt() ?? 0,
       valorPorPassageiro: (raw['valorPorPassageiro'] as num?)?.toDouble(),
@@ -282,18 +316,38 @@ class CaronaRemoteDatasource {
   }
 
   GrupoFailure _mapError(DioException e) {
-    final body = e.response?.data;
-    if (body is Map &&
+    final body = _extrairMapaErro(e.response?.data);
+    if (body != null &&
         (body['error'] == 'FORBIDDEN' ||
             body['error'] == 'NOT_FOUND' ||
             body['error'] == 'CONFLICT' ||
-            body['error'] == 'VALIDATION')) {
+            body['error'] == 'VALIDATION' ||
+            body['error'] == 'UNAUTHENTICATED')) {
       final msg = body['message'];
       return GrupoOperationFailure(
         msg is String && msg.isNotEmpty ? msg : 'Operação não permitida.',
       );
     }
+    if (body != null) {
+      final msg = body['message'];
+      if (msg is String && msg.isNotEmpty) {
+        return GrupoOperationFailure(msg);
+      }
+    }
     return const GrupoOperationFailure(
         'Não foi possível conectar ao servidor. Verifique sua conexão.');
+  }
+
+  /// Em rotas com `ResponseType.bytes` (ex.: comprovante), o JSON de erro chega
+  /// como `List<int>` em vez de `Map`.
+  Map<dynamic, dynamic>? _extrairMapaErro(Object? raw) {
+    if (raw is Map) return raw;
+    if (raw is List<int> && raw.isNotEmpty) {
+      try {
+        final decoded = jsonDecode(utf8.decode(raw));
+        if (decoded is Map) return decoded;
+      } catch (_) {}
+    }
+    return null;
   }
 }

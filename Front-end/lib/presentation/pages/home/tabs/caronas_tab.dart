@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:test_tcc/core/theme/app_colors.dart';
 import 'package:test_tcc/core/theme/app_spacing.dart';
 import 'package:test_tcc/core/theme/app_typography.dart';
+import 'package:test_tcc/data/datasources/session_socket_service.dart';
 import 'package:test_tcc/domain/entities/carona_item.dart';
 import 'package:test_tcc/domain/entities/carona_resumo.dart';
 import 'package:test_tcc/domain/repositories/carona_repository.dart';
@@ -114,6 +115,7 @@ class _CaronaItemCard extends StatelessWidget {
 
   Future<void> _abrir(BuildContext context) async {
     final repo = context.read<CaronaRepository>();
+    final sessionSocket = context.read<SessionSocketService>();
     final userId = context.read<AuthController>().currentUser?.idUsuario;
     final lista = context.read<CaronaController>();
     if (userId == null) return;
@@ -126,6 +128,7 @@ class _CaronaItemCard extends StatelessWidget {
             repo: repo,
             idCarona: item.idCarona,
             currentUserId: userId,
+            sessionSocket: sessionSocket,
           )..iniciar(),
           child: const CaronaDetalhePage(),
         ),

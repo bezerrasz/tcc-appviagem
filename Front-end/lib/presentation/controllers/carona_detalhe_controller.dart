@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:test_tcc/core/config/app_constants.dart';
+import 'package:test_tcc/data/datasources/session_socket_service.dart';
 import 'package:test_tcc/domain/entities/carona_detalhe.dart';
 import 'package:test_tcc/domain/entities/carona_resumo.dart';
 import 'package:test_tcc/domain/failures/grupo_failure.dart';
@@ -7,23 +10,35 @@ import 'package:test_tcc/domain/repositories/carona_repository.dart';
 
 /// Estado da tela de detalhe de uma carona. No novo fluxo o motorista anuncia
 /// e os passageiros pedem para entrar; o motorista aprova/recusa cada pedido
-/// (respeitando capacidade-1) e conclui/cancela a viagem. Criado por navegação.
+/// (respeitando capacidade-1) e conclui/cancela a viagem. Escuta eventos
+/// WebSocket da carona para manter custos, vagas e pagamentos sincronizados.
 class CaronaDetalheController extends ChangeNotifier {
   final CaronaRepository _repo;
   final int idCarona;
   final int currentUserId;
+  StreamSubscription<int>? _avisos;
 
   CaronaDetalheController({
     required CaronaRepository repo,
     required this.idCarona,
     required this.currentUserId,
-  }) : _repo = repo;
+    SessionSocketService? sessionSocket,
+  }) : _repo = repo {
+    _avisos = sessionSocket?.caronaAtualizada
+        .where((id) => id == idCarona)
+        .listen((_) => _recarregarSilencioso());
+  }
 
   CaronaDetalhe? _detalhe;
   bool _loading = false;
   bool _agindo = false;
-  // Passageiros com decisão em andamento (spinner por linha).
+  bool _recarregandoSilencioso = false;
+  bool _atualizacaoPendente = false;
+  bool _disposed = false;
+  // Passageiros com decisão ou revisão de pagamento em andamento.
   final Set<int> _decidindo = {};
+  final Set<int> _confirmandoPagamento = {};
+  final Set<int> _recusandoComprovante = {};
   String? _error;
 
   CaronaDetalhe? get detalhe => _detalhe;
@@ -32,6 +47,13 @@ class CaronaDetalheController extends ChangeNotifier {
   String? get error => _error;
 
   bool estaDecidindo(int idPassageiro) => _decidindo.contains(idPassageiro);
+  bool estaConfirmandoPagamento(int idPassageiro) =>
+      _confirmandoPagamento.contains(idPassageiro);
+  bool estaRecusandoComprovante(int idPassageiro) =>
+      _recusandoComprovante.contains(idPassageiro);
+  bool estaProcessandoPagamento(int idPassageiro) =>
+      estaConfirmandoPagamento(idPassageiro) ||
+      estaRecusandoComprovante(idPassageiro);
 
   bool get souMotorista => _detalhe?.idMotorista == currentUserId;
 
@@ -87,7 +109,30 @@ class CaronaDetalheController extends ChangeNotifier {
       _error = 'Não foi possível carregar a carona.';
     } finally {
       _loading = false;
-      notifyListeners();
+      if (!_disposed) notifyListeners();
+    }
+  }
+
+  Future<void> _recarregarSilencioso() async {
+    if (_disposed || _loading) return;
+    if (_recarregandoSilencioso) {
+      _atualizacaoPendente = true;
+      return;
+    }
+    _recarregandoSilencioso = true;
+    try {
+      do {
+        _atualizacaoPendente = false;
+        final novo = await _repo.detalhe(idCarona);
+        if (_disposed) return;
+        _detalhe = novo;
+        _error = null;
+        notifyListeners();
+      } while (_atualizacaoPendente && !_disposed);
+    } catch (_) {
+      // Falha silenciosa no tempo-real mantém o estado exibido.
+    } finally {
+      _recarregandoSilencioso = false;
     }
   }
 
@@ -99,26 +144,17 @@ class CaronaDetalheController extends ChangeNotifier {
       _mutarDetalhe(() => _repo.cancelarPedido(idCarona));
 
   /// Motorista aprova/recusa um passageiro. Mantém um spinner por linha.
-  Future<bool> decidir({required int idPassageiro, required bool aprovar}) async {
-    if (_decidindo.contains(idPassageiro)) return false;
-    _decidindo.add(idPassageiro);
-    notifyListeners();
-    try {
-      _detalhe = await _repo.decidir(
-        idCarona: idCarona,
+  Future<bool> decidir({required int idPassageiro, required bool aprovar}) =>
+      _executarAcaoPassageiro(
+        emAndamento: _decidindo,
         idPassageiro: idPassageiro,
-        aprovar: aprovar,
+        acao: () => _repo.decidir(
+          idCarona: idCarona,
+          idPassageiro: idPassageiro,
+          aprovar: aprovar,
+        ),
+        erroPadrao: 'Não foi possível decidir o pedido.',
       );
-      _error = null;
-      return true;
-    } on GrupoFailure catch (f) {
-      _error = f.message;
-      return false;
-    } finally {
-      _decidindo.remove(idPassageiro);
-      notifyListeners();
-    }
-  }
 
   /// Motorista informa km rodados e valor do litro; o backend devolve o
   /// detalhe já com o total da viagem e o rateio por passageiro.
@@ -149,13 +185,14 @@ class CaronaDetalheController extends ChangeNotifier {
   }
 
   /// Posso importar o comprovante: carona concluída, fui aprovado, tenho
-  /// valor a pagar e ainda não paguei.
+  /// valor a pagar e ainda não enviei o comprovante.
   bool get podeEnviarComprovante {
     final pg = meuVinculo?.pagamento;
     return _detalhe?.status == StatusCarona.concluida &&
         meuStatus == StatusPassageiro.aprovado &&
         pg != null &&
         !pg.pago &&
+        !pg.temComprovante &&
         pg.valor > 0;
   }
 
@@ -181,6 +218,60 @@ class CaronaDetalheController extends ChangeNotifier {
         ));
   }
 
+  /// Motorista confirma o recebimento do Pix de um passageiro que já enviou o
+  /// comprovante, liberando a atualização atômica dos saldos.
+  Future<bool> confirmarPagamento(int idPassageiro) {
+    if (estaProcessandoPagamento(idPassageiro)) return Future.value(false);
+    return _executarAcaoPassageiro(
+      emAndamento: _confirmandoPagamento,
+      idPassageiro: idPassageiro,
+      acao: () => _repo.confirmarPagamento(
+        idCarona: idCarona,
+        idPassageiro: idPassageiro,
+      ),
+      erroPadrao: 'Não foi possível confirmar o pagamento.',
+    );
+  }
+
+  /// Motorista recusa um comprovante errado/ilegível para destravar novo upload.
+  Future<bool> recusarComprovante(int idPassageiro) {
+    if (estaProcessandoPagamento(idPassageiro)) return Future.value(false);
+    return _executarAcaoPassageiro(
+      emAndamento: _recusandoComprovante,
+      idPassageiro: idPassageiro,
+      acao: () => _repo.recusarComprovante(
+        idCarona: idCarona,
+        idPassageiro: idPassageiro,
+      ),
+      erroPadrao: 'Não foi possível recusar o comprovante.',
+    );
+  }
+
+  Future<bool> _executarAcaoPassageiro({
+    required Set<int> emAndamento,
+    required int idPassageiro,
+    required Future<CaronaDetalhe> Function() acao,
+    required String erroPadrao,
+  }) async {
+    if (emAndamento.contains(idPassageiro)) return false;
+    emAndamento.add(idPassageiro);
+    notifyListeners();
+    try {
+      _detalhe = await acao();
+      _error = null;
+      return true;
+    } on GrupoFailure catch (f) {
+      _error = f.message;
+      return false;
+    } catch (_) {
+      _error = erroPadrao;
+      return false;
+    } finally {
+      emAndamento.remove(idPassageiro);
+      if (!_disposed) notifyListeners();
+    }
+  }
+
   /// Baixa o comprovante de um passageiro. Null em falha ([error] explica).
   Future<({Uint8List bytes, String contentType})?> baixarComprovante(
     int idPassageiro,
@@ -194,6 +285,9 @@ class CaronaDetalheController extends ChangeNotifier {
       return arquivo;
     } on GrupoFailure catch (f) {
       _error = f.message;
+      return null;
+    } catch (_) {
+      _error = 'Não foi possível abrir o comprovante.';
       return null;
     }
   }
@@ -235,9 +329,12 @@ class CaronaDetalheController extends ChangeNotifier {
     } on GrupoFailure catch (f) {
       _error = f.message;
       return false;
+    } catch (_) {
+      _error = 'Não foi possível concluir a ação.';
+      return false;
     } finally {
       _agindo = false;
-      notifyListeners();
+      if (!_disposed) notifyListeners();
     }
   }
 
@@ -254,9 +351,19 @@ class CaronaDetalheController extends ChangeNotifier {
     } on GrupoFailure catch (f) {
       _error = f.message;
       return false;
+    } catch (_) {
+      _error = 'Não foi possível concluir a ação.';
+      return false;
     } finally {
       _agindo = false;
-      notifyListeners();
+      if (!_disposed) notifyListeners();
     }
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    _avisos?.cancel();
+    super.dispose();
   }
 }

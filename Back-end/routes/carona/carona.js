@@ -33,7 +33,8 @@ router.patch('/caronas/:idCarona/cancelar', authenticate, caronaController.cance
 
 // Pagamento via Pix (feito por fora do app). O passageiro aprovado importa o
 // comprovante depois da carona concluida (multipart, campo "comprovante"); o
-// motorista e o proprio passageiro podem ver o arquivo.
+// motorista e o proprio passageiro podem ver o arquivo, e o motorista confirma
+// o recebimento (ou recusa o comprovante para permitir novo envio).
 router.post(
   '/caronas/:idCarona/comprovante',
   authenticate,
@@ -44,6 +45,16 @@ router.get(
   '/caronas/:idCarona/passageiros/:idPassageiro/comprovante',
   authenticate,
   caronaController.verComprovante,
+);
+router.post(
+  '/caronas/:idCarona/passageiros/:idPassageiro/confirmar-pagamento',
+  authenticate,
+  caronaController.confirmarPagamento,
+);
+router.post(
+  '/caronas/:idCarona/passageiros/:idPassageiro/recusar-comprovante',
+  authenticate,
+  caronaController.recusarComprovante,
 );
 
 module.exports = router;

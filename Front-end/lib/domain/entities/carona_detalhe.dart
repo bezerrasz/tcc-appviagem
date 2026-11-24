@@ -6,7 +6,7 @@ class PagamentoPassageiro {
   /// Rateio fixado na conclusão da carona.
   final double valor;
 
-  /// Comprovante Pix importado (pendência quitada).
+  /// Comprovante Pix confirmado pelo motorista (pendência quitada).
   final bool pago;
   final DateTime? dataPagamento;
   final bool temComprovante;
@@ -17,6 +17,9 @@ class PagamentoPassageiro {
     required this.dataPagamento,
     required this.temComprovante,
   });
+
+  /// Passageiro já anexou o comprovante, aguardando o motorista confirmar.
+  bool get aguardandoConfirmacao => !pago && temComprovante;
 }
 
 /// Um passageiro de uma carona, com o status do seu pedido.
@@ -46,6 +49,7 @@ class CarroCarona {
   final String cor;
   final String placa;
   final int capacidade;
+  final double? consumoMedio;
 
   const CarroCarona({
     required this.idCarro,
@@ -55,6 +59,7 @@ class CarroCarona {
     required this.cor,
     required this.placa,
     required this.capacidade,
+    this.consumoMedio,
   });
 
   String get descricao => '$marca $modelo';
@@ -62,28 +67,30 @@ class CarroCarona {
 }
 
 /// Custos da viagem e o rateio, calculados pelo backend a partir dos km
-/// rodados e do valor do litro informados pelo motorista.
-///
-/// combustível = (km ÷ consumo médio) × valor do litro
-/// taxa        = km × taxa por km
-/// total       = combustível + taxa, dividido pelos passageiros aprovados.
+/// rodados, valor do litro e consumo médio real do carro associado.
 class CustosCarona {
   final double kmRodados;
   final double valorLitro;
 
-  /// Consumo médio (km/L) usado para converter km em litros.
+  /// Consumo médio (km/L) do veículo usado para converter km em litros.
   final double consumoMedio;
   final double litros;
   final double combustivel;
 
-  /// Taxa cobrada por km rodado e o total dela na viagem.
+  /// Taxa de manutenção veicular por km rodado (fica com o motorista).
   final double taxaPorKm;
   final double taxa;
 
-  /// Combustível + taxa.
+  /// Taxa de serviço da plataforma embutida no total da viagem, e os dados Pix
+  /// do proprietário do aplicativo para repasse.
+  final double taxaApp;
+  final String? chavePixApp;
+  final String? recebedorApp;
+
+  /// Combustível + manutenção veicular + taxa de serviço da plataforma.
   final double total;
 
-  /// Passageiros aprovados que dividem o total.
+  /// Ocupantes (passageiros aprovados + motorista) que dividem o total.
   final int passageiros;
 
   /// Total ÷ passageiros. Null enquanto não há passageiro aprovado.
@@ -97,6 +104,9 @@ class CustosCarona {
     required this.combustivel,
     required this.taxaPorKm,
     required this.taxa,
+    this.taxaApp = 0,
+    this.chavePixApp,
+    this.recebedorApp,
     required this.total,
     required this.passageiros,
     required this.valorPorPassageiro,

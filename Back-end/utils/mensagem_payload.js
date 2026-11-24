@@ -70,7 +70,11 @@ function includeCaronaResumo(db) {
   return [
     { model: db.Usuario, as: 'motorista', attributes: ['idUsuario', 'nome'] },
     { model: db.Carro, as: 'carro', attributes: ['idCarro', 'capacidade'] },
-    { model: db.CaronaUsuario, as: 'passageiros', attributes: ['idPivot', 'status'] },
+    {
+      model: db.CaronaUsuario,
+      as: 'passageiros',
+      attributes: ['idPivot', 'idPassageiro', 'status'],
+    },
   ];
 }
 

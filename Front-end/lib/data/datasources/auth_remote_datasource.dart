@@ -100,7 +100,7 @@ class AuthRemoteDatasource {
       final response = await _dio.patch('/usuarios/me', data: data);
       return _userFromJson(response.data as Map<String, dynamic>);
     } on DioException catch (e) {
-      throw _mapRegisterError(e);
+      throw _mapAuthRequestError(e);
     }
   }
 
@@ -130,7 +130,7 @@ class AuthRemoteDatasource {
       );
       return _userFromJson(response.data as Map<String, dynamic>);
     } on DioException catch (e) {
-      throw _mapRegisterError(e);
+      throw _mapAuthRequestError(e);
     }
   }
 
@@ -177,13 +177,37 @@ class AuthRemoteDatasource {
             .toList(growable: false),
       );
     } on DioException catch (e) {
-      throw _mapRegisterError(e);
+      throw _mapAuthRequestError(e);
     }
   }
 
   AuthFailure _mapLoginError(DioException e) {
     if (e.response?.statusCode == 401) {
       return const InvalidCredentialsFailure();
+    }
+    return const RegistrationFailure(
+        'Nao foi possivel conectar ao servidor. Verifique sua conexao.');
+  }
+
+  AuthFailure _mapAuthRequestError(DioException e) {
+    final body = e.response?.data;
+    if (body is Map &&
+        (body['error'] == 'CONFLICT' || body['error'] == 'VALIDATION')) {
+      return _mapRegisterError(e);
+    }
+    if (e.response?.statusCode == 401) {
+      final msg = body is Map ? body['message'] : null;
+      return RegistrationFailure(
+        msg is String && msg.isNotEmpty
+            ? msg
+            : 'Sessão expirada. Faça login novamente.',
+      );
+    }
+    if (body is Map) {
+      final msg = body['message'];
+      if (msg is String && msg.isNotEmpty) {
+        return RegistrationFailure(msg);
+      }
     }
     return const RegistrationFailure(
         'Nao foi possivel conectar ao servidor. Verifique sua conexao.');

@@ -40,7 +40,6 @@ const authLimiter = rateLimit({
   message: { error: 'Muitas tentativas de login. Bloqueado por 15 minutos por segurança.' }
 });
 
-app.use(cors());
 app.use(express.json());
 
 // Fotos de perfil (uploads/profilePictures). So para usuarios autenticados:

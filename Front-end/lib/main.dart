@@ -123,15 +123,25 @@ void main() {
                 atualizarFotoPerfilUseCase: atualizarFoto,
               ),
         ),
-        ChangeNotifierProxyProvider<CaronaRepository, CaronaController>(
-          create: (ctx) => CaronaController(ctx.read<CaronaRepository>()),
-          update: (_, repo, previous) => previous ?? CaronaController(repo),
+        ChangeNotifierProxyProvider2<CaronaRepository, SessionSocketService,
+            CaronaController>(
+          create: (ctx) => CaronaController(
+            ctx.read<CaronaRepository>(),
+            sessionSocket: ctx.read<SessionSocketService>(),
+          ),
+          update: (_, repo, sessionSocket, previous) =>
+              previous ??
+              CaronaController(repo, sessionSocket: sessionSocket),
         ),
-        ChangeNotifierProvider<FinanceiroController>(
+        ChangeNotifierProxyProvider2<AuthRepository, SessionSocketService,
+            FinanceiroController>(
           create: (ctx) => FinanceiroController(
             repo: ctx.read<AuthRepository>(),
             sessionSocket: ctx.read<SessionSocketService>(),
           ),
+          update: (_, repo, sessionSocket, previous) =>
+              previous ??
+              FinanceiroController(repo: repo, sessionSocket: sessionSocket),
         ),
         ChangeNotifierProxyProvider<CarroRepository, CarroController>(
           create: (ctx) => CarroController(ctx.read<CarroRepository>()),

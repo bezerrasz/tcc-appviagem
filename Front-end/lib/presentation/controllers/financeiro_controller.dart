@@ -23,6 +23,7 @@ class FinanceiroController extends ChangeNotifier {
   ResumoFinanceiro? _resumo;
   bool _loading = false;
   String? _error;
+  int _geracao = 0;
 
   ResumoFinanceiro? get resumo => _resumo;
   bool get loading => _loading;
@@ -30,30 +31,42 @@ class FinanceiroController extends ChangeNotifier {
 
   Future<void> carregar() async {
     if (_loading) return;
+    final geracaoAtual = ++_geracao;
     _loading = true;
     _error = null;
     notifyListeners();
     try {
-      _resumo = await _repo.financeiro();
+      final novoResumo = await _repo.financeiro();
+      if (geracaoAtual != _geracao) return;
+      _resumo = novoResumo;
     } on AuthFailure catch (f) {
+      if (geracaoAtual != _geracao) return;
       _error = f.message;
     } catch (_) {
+      if (geracaoAtual != _geracao) return;
       _error = 'Não foi possível carregar seus saldos.';
     } finally {
-      _loading = false;
-      notifyListeners();
+      if (geracaoAtual == _geracao) {
+        _loading = false;
+        notifyListeners();
+      }
     }
   }
 
-  /// Esquece os dados do usuário anterior (logout).
-  void limpar() {
+  /// Esquece os dados do usuário anterior (logout). Não notifica por padrão
+  /// para poder ser chamado com segurança no `dispose()` do `HomeShell`
+  /// enquanto a árvore de widgets está bloqueada.
+  void limpar({bool notificar = false}) {
+    _geracao++;
     _resumo = null;
     _error = null;
-    notifyListeners();
+    _loading = false;
+    if (notificar) notifyListeners();
   }
 
   @override
   void dispose() {
+    _geracao++;
     _avisos?.cancel();
     super.dispose();
   }

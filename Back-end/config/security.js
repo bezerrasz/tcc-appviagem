@@ -40,12 +40,35 @@ module.exports = {
   // Mensagem quando o motorista tenta aprovar alem do limite de passageiros.
   CARONA_LOTADA_MSG: 'A carona ja atingiu o limite de passageiros.',
   // Custos da viagem. O motorista informa quanto rodou e quanto pagou no litro;
-  // como nao guardamos o consumo de cada carro, usamos um consumo medio (km/L)
-  // para converter os km em litros.
+  // o calculo usa o consumoMedio (km/L) do carro associado a carona, mantendo
+  // este valor apenas como fallback caso o veiculo tenha sido removido.
   CARONA_CONSUMO_MEDIO_KM_L: 10,
-  // Taxa do app cobrada por km rodado. Entra no total da viagem antes do rateio
-  // entre os passageiros.
+  // Taxa de manutencao veicular cobrada por km rodado (T_km na formula do TCC).
+  // Compensa o desgaste do automovel e fica integralmente com o motorista.
   CARONA_TAXA_POR_KM: 0.1,
+  // ===========================================================================
+  // TAXA DE SERVICO E PIX DA PLATAFORMA (DONO DO APP - Share a Ride)
+  // Definida automaticamente apos informar a distancia/custos da rota (Secao
+  // V-D.1 do TCC): R$ 5,00 quando o valor total da viagem a ratear supera
+  // R$ 20,00, ou R$ 2,50 para valores iguais ou inferiores.
+  //
+  // MODELO MVP vs PRODUCAO (Alinhamento com o TCC):
+  //   - No MVP atual, a liquidacao ocorre via Pix P2P por copia de chave:
+  //     o passageiro paga a cota total (incluindo a taxa) ao motorista e envia
+  //     o comprovante; o motorista recebe orientacao para repassar a taxaApp
+  //     a chave Pix da plataforma abaixo (sem garantia bancaria automatica).
+  //   - Em producao (Secoes V-D.2 e VI item 2), o gateway de pagamento
+  //     (Mercado Pago / API Pix Open Finance via Webhooks) realiza o split
+  //     automatico no ato do pagamento, eliminando risco de inadimplencia.
+  //
+  // -> ESPACO DO DONO DO APP: preencha sua chave Pix abaixo (ou defina
+  //    APP_PIX_CHAVE no arquivo .env) para receber o Pix da taxa do aplicativo.
+  // ===========================================================================
+  CARONA_TAXA_APP_LIMIAR_RATEIO: 20,
+  CARONA_TAXA_APP_PADRAO: 5.0,
+  CARONA_TAXA_APP_REDUZIDA: 2.5,
+  APP_PIX_RECEBEDOR: process.env.APP_PIX_RECEBEDOR || 'Share a Ride (Plataforma)',
+  APP_PIX_CHAVE: process.env.APP_PIX_CHAVE || 'COLOQUE_SUA_CHAVE_PIX_DO_APP_AQUI',
   CARONA_KM_MIN: 0.1,
   CARONA_KM_MAX: 5000,
   CARONA_VALOR_LITRO_MIN: 0.01,

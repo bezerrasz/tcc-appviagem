@@ -59,27 +59,13 @@ class _PerfilTabState extends State<PerfilTab> {
   }
 
   Future<void> _editarEmail(User user) async {
-    final controller = TextEditingController(text: user.email);
     final novo = await showDialog<String>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Editar e-mail'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          keyboardType: TextInputType.emailAddress,
-          decoration: const InputDecoration(labelText: 'E-mail'),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancelar'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, controller.text.trim()),
-            child: const Text('Salvar'),
-          ),
-        ],
+      builder: (_) => _DialogoCampoTexto(
+        titulo: 'Editar e-mail',
+        valorInicial: user.email,
+        keyboardType: TextInputType.emailAddress,
+        decoration: const InputDecoration(labelText: 'E-mail'),
       ),
     );
     if (novo == null || novo.isEmpty || novo == user.email || !mounted) return;
@@ -91,31 +77,17 @@ class _PerfilTabState extends State<PerfilTab> {
   /// Chave Pix do motorista: mostrada aos passageiros quando a carona termina.
   /// Salvar vazio remove a chave.
   Future<void> _editarChavePix(User user) async {
-    final controller = TextEditingController(text: user.chavePix ?? '');
     final nova = await showDialog<String>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Chave Pix'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          maxLength: AppConstants.chavePixMax,
-          decoration: const InputDecoration(
-            labelText: 'Chave Pix',
-            hintText: 'CPF, celular, e-mail ou chave aleatória',
-            helperText: 'Os passageiros veem quando a carona é concluída.',
-          ),
+      builder: (_) => _DialogoCampoTexto(
+        titulo: 'Chave Pix',
+        valorInicial: user.chavePix ?? '',
+        maxLength: AppConstants.chavePixMax,
+        decoration: const InputDecoration(
+          labelText: 'Chave Pix',
+          hintText: 'CPF, celular, e-mail ou chave aleatória',
+          helperText: 'Os passageiros veem quando a carona é concluída.',
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancelar'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, controller.text.trim()),
-            child: const Text('Salvar'),
-          ),
-        ],
       ),
     );
     if (nova == null || nova == (user.chavePix ?? '') || !mounted) return;
@@ -347,6 +319,61 @@ class _InfoRow extends StatelessWidget {
             const SizedBox(width: AppSpacing.md),
         ],
       ),
+    );
+  }
+}
+
+class _DialogoCampoTexto extends StatefulWidget {
+  final String titulo;
+  final String valorInicial;
+  final InputDecoration decoration;
+  final TextInputType? keyboardType;
+  final int? maxLength;
+
+  const _DialogoCampoTexto({
+    required this.titulo,
+    required this.valorInicial,
+    required this.decoration,
+    this.keyboardType,
+    this.maxLength,
+  });
+
+  @override
+  State<_DialogoCampoTexto> createState() => _DialogoCampoTextoState();
+}
+
+class _DialogoCampoTextoState extends State<_DialogoCampoTexto> {
+  late final TextEditingController _controller = TextEditingController(
+    text: widget.valorInicial,
+  );
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(widget.titulo),
+      content: TextField(
+        controller: _controller,
+        autofocus: true,
+        keyboardType: widget.keyboardType,
+        maxLength: widget.maxLength,
+        decoration: widget.decoration,
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancelar'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(context, _controller.text.trim()),
+          child: const Text('Salvar'),
+        ),
+      ],
     );
   }
 }

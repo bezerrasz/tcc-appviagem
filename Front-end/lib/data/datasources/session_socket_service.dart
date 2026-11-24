@@ -25,11 +25,16 @@ class SessionSocketService {
   // comprovante importado). Stream de vida longa: quem escuta não precisa se
   // reinscrever a cada (re)conexão.
   final StreamController<void> _financeiro = StreamController<void>.broadcast();
+  // IDs de caronas atualizadas em tempo real para manter a tela de detalhes e
+  // a listagem "Minhas caronas" sincronizadas sem recarga manual.
+  final StreamController<int> _caronaAtualizada =
+      StreamController<int>.broadcast();
 
   SessionSocketService({required TokenStorage tokenStorage})
     : _tokenStorage = tokenStorage;
 
   Stream<void> get financeiroAtualizado => _financeiro.stream;
+  Stream<int> get caronaAtualizada => _caronaAtualizada.stream;
 
   /// Conecta e devolve o stream de grupos em que o usuário foi adicionado.
   Stream<Grupo> conectar() {
@@ -68,6 +73,16 @@ class SessionSocketService {
     });
 
     socket.on('financeiro:atualizado', (_) => _financeiro.add(null));
+
+    socket.on('carona:atualizada', (data) {
+      if (data is Map) {
+        final rawId = data['idCarona'];
+        final id = rawId is num ? rawId.toInt() : int.tryParse('$rawId');
+        if (id != null && !_caronaAtualizada.isClosed) {
+          _caronaAtualizada.add(id);
+        }
+      }
+    });
 
     socket.connect();
     return controller.stream;

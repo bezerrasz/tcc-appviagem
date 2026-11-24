@@ -3,6 +3,7 @@
 const db = require('../../models');
 const AppError = require('../../utils/app_error');
 const security = require('../../config/security');
+const { includeCaronaResumo, caronaPayload } = require('../../utils/mensagem_payload');
 
 function parseIdCarro(req) {
   const idCarro = Number(req.params.idCarro);
@@ -145,10 +146,62 @@ async function criar(req, res) {
 }
 
 async function atualizar(req, res) {
+  let t;
+  let caronasAbertas = [];
+  let carro;
   try {
     const idCarro = parseIdCarro(req);
-    const carro = await buscarMeuCarro(req.user.idUsuario, idCarro);
     const dados = validarCarro(req.body);
+    t = await db.sequelize.transaction();
+
+    carro = await db.Carro.findOne({
+      where: { idCarro, idUsuario: req.user.idUsuario },
+      transaction: t,
+      lock: t.LOCK.UPDATE,
+    });
+    if (!carro) {
+      throw AppError.notFound('Carro nao encontrado.');
+    }
+
+    // Impede reduzir a capacidade abaixo de passageiros ja aprovados em
+    // caronas abertas vinculadas a este veiculo.
+    caronasAbertas = await db.Carona.findAll({
+      where: {
+        idCarro,
+        ativo: true,
+        status: security.CARONA_STATUS.ABERTA,
+      },
+      attributes: ['idCarona', 'idGrupo'],
+      transaction: t,
+      lock: t.LOCK.UPDATE,
+    });
+
+    if (caronasAbertas.length > 0) {
+      const idsAbertas = caronasAbertas.map((c) => c.idCarona);
+      const aprovados = await db.CaronaUsuario.findAll({
+        where: {
+          idCarona: { [db.Sequelize.Op.in]: idsAbertas },
+          status: security.CARONA_PASSAGEIRO_STATUS.APROVADO,
+        },
+        attributes: ['idCarona'],
+        transaction: t,
+      });
+      const contagemPorCarona = new Map();
+      for (const row of aprovados) {
+        contagemPorCarona.set(
+          row.idCarona,
+          (contagemPorCarona.get(row.idCarona) || 0) + 1,
+        );
+      }
+      const novasVagas = Math.max(dados.capacidade - 1, 0);
+      for (const qtd of contagemPorCarona.values()) {
+        if (qtd > novasVagas) {
+          throw AppError.conflict(
+            'Nao e possivel reduzir a capacidade abaixo dos passageiros ja aprovados em caronas abertas.',
+          );
+        }
+      }
+    }
 
     carro.marca = dados.marca;
     carro.modelo = dados.modelo;
@@ -157,12 +210,39 @@ async function atualizar(req, res) {
     carro.anoFabricacao = dados.anoFabricacao;
     carro.capacidade = dados.capacidade;
     carro.consumoMedio = dados.consumoMedio;
-    await carro.save();
+    await carro.save({ transaction: t });
 
-    return res.status(200).json(carroPayload(carro));
+    await t.commit();
   } catch (err) {
+    if (t && !t.finished) {
+      await t.rollback().catch(() => {});
+    }
     return tratarErro(res, err, '[carro_controller.atualizar]');
   }
+
+  // Atualiza cards/telas de caronas abertas que usam este carro (vagas/consumo).
+  const io = req.app.get('io');
+  if (io && caronasAbertas.length > 0) {
+    for (const c of caronasAbertas) {
+      const resumo = await db.Carona.findByPk(c.idCarona, {
+        include: includeCaronaResumo(db),
+      }).catch(() => null);
+      if (!resumo) continue;
+      const payload = caronaPayload(resumo);
+      io.to(`grupo:${c.idGrupo}`).emit('carona:atualizada', payload);
+      const destinatarios = new Set(
+        [
+          resumo.idMotorista,
+          ...(resumo.passageiros || []).map((p) => p.idPassageiro),
+        ].filter(Boolean),
+      );
+      for (const uid of destinatarios) {
+        io.to(`user:${uid}`).emit('carona:atualizada', payload);
+      }
+    }
+  }
+
+  return res.status(200).json(carroPayload(carro));
 }
 
 // Exclui um carro. A FK carona.idCarro tem ON DELETE SET NULL, entao o

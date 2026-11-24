@@ -66,6 +66,26 @@ class CaronaRepositoryImpl implements CaronaRepository {
       );
 
   @override
+  Future<CaronaDetalhe> confirmarPagamento({
+    required int idCarona,
+    required int idPassageiro,
+  }) =>
+      remote.confirmarPagamento(
+        idCarona: idCarona,
+        idPassageiro: idPassageiro,
+      );
+
+  @override
+  Future<CaronaDetalhe> recusarComprovante({
+    required int idCarona,
+    required int idPassageiro,
+  }) =>
+      remote.recusarComprovante(
+        idCarona: idCarona,
+        idPassageiro: idPassageiro,
+      );
+
+  @override
   Future<({Uint8List bytes, String contentType})> baixarComprovante({
     required int idCarona,
     required int idPassageiro,

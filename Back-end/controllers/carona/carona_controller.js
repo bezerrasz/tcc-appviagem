@@ -77,7 +77,7 @@ const includeDetalhe = () => [
   {
     model: db.Carro,
     as: 'carro',
-    attributes: ['idCarro', 'marca', 'modelo', 'anoFabricacao', 'cor', 'placa', 'capacidade'],
+    attributes: ['idCarro', 'marca', 'modelo', 'anoFabricacao', 'cor', 'placa', 'capacidade', 'consumoMedio'],
   },
   {
     model: db.CaronaUsuario,
@@ -90,10 +90,10 @@ const includeDetalhe = () => [
 
 // Monta o JSON de detalhe (motorista, carro, vagas, passageiros com status e
 // os custos/rateio da viagem) do ponto de vista de [idViewer]:
-//   - o pagamento de cada passageiro (valor devido, pago ou pendente) so
-//     aparece para o motorista e para o proprio passageiro;
-//   - a chave Pix do motorista so aparece depois da conclusao, para o
-//     motorista e para os passageiros aprovados (quem tem algo a pagar).
+//   - o pagamento de cada passageiro (valor devido, aguardando confirmacao ou
+//     pago) so aparece para o motorista e para o proprio passageiro;
+//   - a chave Pix do motorista aparece para ele e para os passageiros aprovados
+//     enquanto a carona nao estiver cancelada.
 function montarDetalhe(carona, idViewer) {
   const lugares = carona.carro
     ? Math.max(carona.carro.capacidade - 1, 0)
@@ -107,9 +107,10 @@ function montarDetalhe(carona, idViewer) {
       status: p.status,
       pagamento: null,
     };
-    if ((souMotorista || idUsuario === idViewer) && p.valorDevido != null) {
+    const valorDevido = p.valorDevido != null ? Number(p.valorDevido) : 0;
+    if ((souMotorista || idUsuario === idViewer) && valorDevido > 0) {
       item.pagamento = {
-        valor: Number(p.valorDevido),
+        valor: valorDevido,
         pago: p.dataPagamento != null,
         dataPagamento: p.dataPagamento,
         temComprovante: Boolean(p.comprovante),
@@ -120,14 +121,29 @@ function montarDetalhe(carona, idViewer) {
   const souAprovado = passageiros.some(
     (p) => p.idUsuario === idViewer && p.status === PSTATUS.APROVADO,
   );
-  const veChavePix = carona.status === STATUS.CONCLUIDA && (souMotorista || souAprovado);
+  const veChavePix = carona.status !== STATUS.CANCELADA && (souMotorista || souAprovado);
   const ocupadas = passageiros.filter((p) => p.status === PSTATUS.APROVADO).length;
-  // O rateio e sobre os passageiros aprovados (quem de fato foi de carona).
+  // O rateio usa o consumoMedio real do veiculo e divide entre ocupantes
+  // confirmados (passageiros aprovados + motorista).
   const custos = calcularCustos({
     kmRodados: carona.kmRodados,
     valorLitro: carona.valorLitro,
     passageiros: ocupadas + 1, // motorista incluso
+    consumoMedio: carona.carro ? carona.carro.consumoMedio : null,
   });
+
+  // Se a carona ja foi concluida, garante que o valor por pessoa exibido no
+  // resumo nao divirja do valorDevido fixado na tabela carona_usuario (caso o
+  // veiculo tenha sido editado ou removido posteriormente).
+  if (carona.status === STATUS.CONCLUIDA && custos && ocupadas > 0) {
+    const valorFixado = (carona.passageiros || [])
+      .filter((p) => p.status === PSTATUS.APROVADO && p.valorDevido != null)
+      .map((p) => Number(p.valorDevido))
+      .find((v) => Number.isFinite(v) && v > 0);
+    if (valorFixado != null) {
+      custos.valorPorPassageiro = valorFixado;
+    }
+  }
 
   return {
     idCarona: carona.idCarona,
@@ -154,6 +170,7 @@ function montarDetalhe(carona, idViewer) {
           cor: carona.carro.cor,
           placa: carona.carro.placa,
           capacidade: carona.carro.capacidade,
+          consumoMedio: Number(carona.carro.consumoMedio) || null,
         }
       : null,
     passageiros,
@@ -171,21 +188,34 @@ async function responderDetalhe(req, res, idCarona) {
   return res.status(200).json(montarDetalhe(completa, req.user.idUsuario));
 }
 
-// Recarrega o resumo da carona e emite carona:atualizada pra sala do grupo,
-// para os cards do chat refletirem vagas/pedidos/status ao vivo.
-async function emitirAtualizacao(req, idCarona, idGrupo) {
+// Recarrega o resumo da carona e emite carona:atualizada tanto para a sala do
+// grupo (cards do chat) quanto para as salas individuais dos participantes
+// (tela de detalhes e listagem "Minhas caronas").
+async function emitirAtualizacao(req, idCarona, idGrupo, idsUsuariosExtras = []) {
   const io = req.app.get('io');
   if (!io) return;
   const resumo = await db.Carona.findByPk(idCarona, {
     include: includeCaronaResumo(db),
   });
-  io.to(`grupo:${idGrupo}`).emit('carona:atualizada', caronaPayload(resumo));
+  if (!resumo) return;
+  const payload = caronaPayload(resumo);
+  io.to(`grupo:${idGrupo}`).emit('carona:atualizada', payload);
+  const destinatarios = new Set(
+    [
+      resumo.idMotorista,
+      ...(resumo.passageiros || []).map((p) => p.idPassageiro),
+      ...idsUsuariosExtras,
+    ].filter(Boolean),
+  );
+  for (const uid of destinatarios) {
+    io.to(`user:${uid}`).emit('carona:atualizada', payload);
+  }
 }
 
 // Motorista anuncia uma carona no grupo. Cria a carona ja com motorista e carro
 // ativo (status 'aberta') e posta um card no chat. Tudo numa transacao.
 async function anunciar(req, res) {
-  const t = await db.sequelize.transaction();
+  let t;
   let payload;
   let idGrupo;
   try {
@@ -216,6 +246,8 @@ async function anunciar(req, res) {
     if (!carro) {
       throw AppError.validation(security.CARRO_OBRIGATORIO_MSG);
     }
+
+    t = await db.sequelize.transaction();
 
     const carona = await db.Carona.create(
       {
@@ -250,14 +282,17 @@ async function anunciar(req, res) {
 
     await t.commit();
   } catch (err) {
-    await t.rollback().catch(() => {});
+    if (t && !t.finished) await t.rollback().catch(() => {});
     return tratarErro(res, err, '[carona_controller.anunciar]');
   }
 
-  // Broadcast do card so apos o commit.
+  // Broadcast do card e atualizacao da lista do motorista so apos o commit.
   const io = req.app.get('io');
   if (io) {
     io.to(`grupo:${idGrupo}`).emit('mensagem:nova', payload);
+    if (payload.carona) {
+      io.to(`user:${req.user.idUsuario}`).emit('carona:atualizada', payload.carona);
+    }
   }
 
   return res.status(201).json(payload);
@@ -325,7 +360,7 @@ async function cancelarPedido(req, res) {
     // Se a carona está aberta, o cancelamento é permitido
     await vinculo.destroy();
 
-    await emitirAtualizacao(req, idCarona, carona.idGrupo);
+    await emitirAtualizacao(req, idCarona, carona.idGrupo, [req.user.idUsuario]);
     return await responderDetalhe(req, res, idCarona);
   } catch (err) {
     return tratarErro(res, err, '[carona_controller.cancelarPedido]');
@@ -336,9 +371,8 @@ async function cancelarPedido(req, res) {
 // limite de vagas (capacidade do carro - 1). Body: { acao: 'aprovar'|'recusar' }.
 async function decidir(req, res) {
   let idGrupoCarona = null;
-  // 1. Iniciamos a transação para agrupar as operações
-  const t = await db.sequelize.transaction();
-  
+  let t;
+
   try {
     const idCarona = parseIdCarona(req);
     const idPassageiro = parseIdPassageiro(req);
@@ -346,6 +380,9 @@ async function decidir(req, res) {
     if (acao !== 'aprovar' && acao !== 'recusar') {
       throw AppError.validation("Acao invalida. Use 'aprovar' ou 'recusar'.");
     }
+
+    // 1. Iniciamos a transação dentro do try para garantir rollback/tratamento
+    t = await db.sequelize.transaction();
 
     const carona = await db.Carona.findOne({
       where: { idCarona, ativo: true },
@@ -414,7 +451,7 @@ async function decidir(req, res) {
     
   } catch (err) {
     // 5. Se algo quebrou ou deu lotado, desfazemos tudo e destrancamos a tabela
-    if (!t.finished) {
+    if (t && !t.finished) {
       await t.rollback().catch(() => {});
     }
     return tratarErro(res, err, '[carona_controller.decidir]');
@@ -423,12 +460,11 @@ async function decidir(req, res) {
 
 // Passageiro importa o comprovante do Pix feito por fora do app. So depois da
 // carona concluida, so passageiro aprovado e uma unica vez. Numa transacao (com
-// o vinculo travado contra envio duplo): registra o comprovante e a data do
-// pagamento (pendencia quitada), soma o valor devido ao saldoPago do
-// passageiro e ao saldoRecebido do motorista.
+// o vinculo travado contra envio duplo): grava o comprovante e deixa o
+// pagamento aguardando a confirmacao do motorista (dataPagamento nula).
 async function enviarComprovante(req, res) {
   const arquivo = req.file;
-  const t = await db.sequelize.transaction();
+  let t;
   let idCarona;
   let carona;
   try {
@@ -448,6 +484,8 @@ async function enviarComprovante(req, res) {
       );
     }
 
+    t = await db.sequelize.transaction();
+
     const vinculo = await db.CaronaUsuario.findOne({
       where: { idCarona, idPassageiro: req.user.idUsuario },
       transaction: t,
@@ -461,27 +499,22 @@ async function enviarComprovante(req, res) {
       throw AppError.conflict('Nao ha valor a pagar nesta carona.');
     }
     if (vinculo.dataPagamento) {
-      throw AppError.conflict('O pagamento desta carona ja foi registrado.');
+      throw AppError.conflict('O pagamento desta carona ja foi confirmado.');
+    }
+    if (vinculo.comprovante) {
+      throw AppError.conflict(
+        'O comprovante ja foi enviado. Aguarde a confirmacao do motorista.',
+      );
     }
 
     await vinculo.update(
-      { comprovante: arquivo.filename, dataPagamento: new Date() },
+      { comprovante: arquivo.filename },
       { transaction: t },
-    );
-    // UPDATE ... SET saldo = saldo + valor: atomico no banco, sem ler e
-    // regravar o saldo (evita perder um pagamento simultaneo).
-    await db.Usuario.increment(
-      { saldoPago: valor },
-      { where: { idUsuario: req.user.idUsuario }, transaction: t },
-    );
-    await db.Usuario.increment(
-      { saldoRecebido: valor },
-      { where: { idUsuario: carona.idMotorista }, transaction: t },
     );
 
     await t.commit();
   } catch (err) {
-    if (!t.finished) await t.rollback().catch(() => {});
+    if (t && !t.finished) await t.rollback().catch(() => {});
     // Arquivo recebido mas nao aproveitado (invalido, duplicado, erro).
     if (arquivo) await comprovante.remover(arquivo.filename);
     return tratarErro(res, err, '[carona_controller.enviarComprovante]');
@@ -489,17 +522,136 @@ async function enviarComprovante(req, res) {
 
   try {
     await emitirAtualizacao(req, idCarona, carona.idGrupo);
-    // Avisa passageiro e motorista (sala pessoal) para a tela Inicio
-    // recarregar os saldos e o "a receber".
-    const io = req.app.get('io');
-    if (io) {
-      io.to(`user:${req.user.idUsuario}`).emit('financeiro:atualizado', {});
-      io.to(`user:${carona.idMotorista}`).emit('financeiro:atualizado', {});
-    }
     return await responderDetalhe(req, res, idCarona);
   } catch (err) {
     return tratarErro(res, err, '[carona_controller.enviarComprovante]');
   }
+}
+
+// Fluxo compartilhado de revisao de comprovante pelo motorista (confirmar
+// recebimento ou recusar comprovante invalido para permitir reenvio).
+async function processarRevisaoComprovante(
+  req,
+  res,
+  tag,
+  { acaoMensagem, msgSemComprovante, exigirValor },
+  onVinculo,
+) {
+  let t;
+  let idCarona;
+  let idPassageiro;
+  let carona;
+  let posCommit;
+  try {
+    idCarona = parseIdCarona(req);
+    idPassageiro = parseIdPassageiro(req);
+    carona = await buscarCarona(idCarona);
+    await ensureMembro(req.user.idUsuario, carona.idGrupo);
+
+    if (carona.idMotorista !== req.user.idUsuario) {
+      throw AppError.forbidden(acaoMensagem);
+    }
+    if (carona.status !== STATUS.CONCLUIDA) {
+      throw AppError.conflict(
+        'Os comprovantes so podem ser avaliados apos a conclusao da carona.',
+      );
+    }
+
+    t = await db.sequelize.transaction();
+
+    const vinculo = await db.CaronaUsuario.findOne({
+      where: { idCarona, idPassageiro },
+      transaction: t,
+      lock: t.LOCK.UPDATE,
+    });
+    if (!vinculo || vinculo.status !== PSTATUS.APROVADO) {
+      throw AppError.notFound('Passageiro aprovado nao encontrado nesta carona.');
+    }
+    const valor = Number(vinculo.valorDevido);
+    if (exigirValor && !(valor > 0)) {
+      throw AppError.conflict('Nao ha valor a receber deste passageiro.');
+    }
+    if (vinculo.dataPagamento) {
+      throw AppError.conflict('Este pagamento ja foi confirmado.');
+    }
+    if (!vinculo.comprovante) {
+      throw AppError.conflict(msgSemComprovante);
+    }
+
+    posCommit = await onVinculo({ t, carona, vinculo, idPassageiro, valor });
+    await t.commit();
+  } catch (err) {
+    if (t && !t.finished) await t.rollback().catch(() => {});
+    return tratarErro(res, err, tag);
+  }
+
+  try {
+    if (typeof posCommit === 'function') {
+      await posCommit();
+    }
+    await emitirAtualizacao(req, idCarona, carona.idGrupo);
+    return await responderDetalhe(req, res, idCarona);
+  } catch (err) {
+    return tratarErro(res, err, tag);
+  }
+}
+
+// Motorista confirma o recebimento do Pix apos conferir o comprovante enviado
+// pelo passageiro. Numa transacao atomica (com o vinculo travado contra
+// confirmacao dupla): registra dataPagamento e soma o valor devido ao
+// saldoPago do passageiro e ao saldoRecebido do motorista.
+async function confirmarPagamento(req, res) {
+  return processarRevisaoComprovante(
+    req,
+    res,
+    '[carona_controller.confirmarPagamento]',
+    {
+      acaoMensagem: 'Apenas o motorista pode confirmar o recebimento do Pix.',
+      msgSemComprovante: 'O passageiro ainda nao importou o comprovante do Pix.',
+      exigirValor: true,
+    },
+    async ({ t, carona, vinculo, idPassageiro, valor }) => {
+      await vinculo.update(
+        { dataPagamento: new Date() },
+        { transaction: t },
+      );
+      await db.Usuario.increment(
+        { saldoPago: valor },
+        { where: { idUsuario: idPassageiro }, transaction: t },
+      );
+      await db.Usuario.increment(
+        { saldoRecebido: valor },
+        { where: { idUsuario: carona.idMotorista }, transaction: t },
+      );
+      return () => {
+        const io = req.app.get('io');
+        if (io) {
+          io.to(`user:${idPassageiro}`).emit('financeiro:atualizado', {});
+          io.to(`user:${carona.idMotorista}`).emit('financeiro:atualizado', {});
+        }
+      };
+    },
+  );
+}
+
+// Motorista recusa um comprovante errado/ilegivel enviado pelo passageiro,
+// limpando o registro para destravar um novo upload via Pix.
+async function recusarComprovante(req, res) {
+  return processarRevisaoComprovante(
+    req,
+    res,
+    '[carona_controller.recusarComprovante]',
+    {
+      acaoMensagem: 'Apenas o motorista pode recusar o comprovante.',
+      msgSemComprovante: 'Nao ha comprovante pendente para recusar.',
+      exigirValor: false,
+    },
+    async ({ t, vinculo }) => {
+      const arquivoAntigo = vinculo.comprovante;
+      await vinculo.update({ comprovante: null }, { transaction: t });
+      return () => comprovante.remover(arquivoAntigo);
+    },
+  );
 }
 
 // Devolve o arquivo do comprovante de um passageiro. So o motorista da carona
@@ -592,11 +744,13 @@ async function atualizarCustos(req, res) {
 // numa transacao com a carona travada, para nao concluir duas vezes nem
 // aprovar alguem no meio do calculo.
 async function concluir(req, res) {
-  const t = await db.sequelize.transaction();
+  let t;
   let idCarona;
   let carona;
   try {
     idCarona = parseIdCarona(req);
+    t = await db.sequelize.transaction();
+
     carona = await db.Carona.findOne({
       where: { idCarona, ativo: true },
       transaction: t,
@@ -622,23 +776,40 @@ async function concluir(req, res) {
       transaction: t,
     });
     if (aprovados > 0) {
-      // Mesmo calculo exibido no detalhe: total / (aprovados + motorista).
+      const carro = carona.idCarro
+        ? await db.Carro.findByPk(carona.idCarro, {
+            attributes: ['consumoMedio'],
+            transaction: t,
+          })
+        : null;
+      // Mesmo calculo exibido no detalhe: total / (aprovados + motorista),
+      // usando o consumoMedio real do veiculo cadastrado.
       const custos = calcularCustos({
         kmRodados: carona.kmRodados,
         valorLitro: carona.valorLitro,
         passageiros: aprovados + 1,
+        consumoMedio: carro ? carro.consumoMedio : null,
       });
-      await db.CaronaUsuario.update(
-        { valorDevido: custos.valorPorPassageiro },
-        { where: { idCarona, status: PSTATUS.APROVADO }, transaction: t },
-      );
+      if (custos && custos.valorPorPassageiro > 0) {
+        await db.CaronaUsuario.update(
+          { valorDevido: custos.valorPorPassageiro },
+          { where: { idCarona, status: PSTATUS.APROVADO }, transaction: t },
+        );
+      }
     }
+
+    // Pedidos ainda nao avaliados nao podem continuar "pendentes" numa carona
+    // ja encerrada.
+    await db.CaronaUsuario.update(
+      { status: PSTATUS.RECUSADO },
+      { where: { idCarona, status: PSTATUS.PENDENTE }, transaction: t },
+    );
 
     carona.status = STATUS.CONCLUIDA;
     await carona.save({ transaction: t });
     await t.commit();
   } catch (err) {
-    if (!t.finished) await t.rollback().catch(() => {});
+    if (t && !t.finished) await t.rollback().catch(() => {});
     return tratarErro(res, err, '[carona_controller.concluir]');
   }
 
@@ -770,5 +941,7 @@ module.exports = {
   listar,
   detalhe,
   enviarComprovante,
+  confirmarPagamento,
+  recusarComprovante,
   verComprovante,
 };

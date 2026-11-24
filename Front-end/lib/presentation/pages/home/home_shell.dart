@@ -22,26 +22,35 @@ class HomeShell extends StatefulWidget {
 
 class _HomeShellState extends State<HomeShell> {
   int _index = 0;
+  GrupoController? _grupos;
+  FinanceiroController? _financeiro;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _grupos = context.read<GrupoController>();
+    _financeiro = context.read<FinanceiroController>();
+  }
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      final grupos = context.read<GrupoController>();
-      grupos.carregar();
-      context.read<FinanceiroController>().carregar();
+      _grupos?.carregar();
+      _financeiro?.carregar();
       // Realtime de sessão: recebe ao vivo grupos em que o usuário for
       // adicionado enquanto está logado. Encerrado no dispose (logout).
-      grupos.iniciarSessaoRealtime();
+      _grupos?.iniciarSessaoRealtime();
     });
   }
 
   @override
   void dispose() {
-    context.read<GrupoController>().encerrarSessaoRealtime();
-    // Logout: não mostrar os saldos deste usuário para o próximo.
-    context.read<FinanceiroController>().limpar();
+    _grupos?.encerrarSessaoRealtime();
+    // Logout: não mostrar os saldos deste usuário para o próximo (sem
+    // notifyListeners nem context.read durante o desmonte da árvore).
+    _financeiro?.limpar();
     super.dispose();
   }
 

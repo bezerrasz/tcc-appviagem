@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import 'package:test_tcc/core/theme/app_colors.dart';
 import 'package:test_tcc/core/theme/app_spacing.dart';
 import 'package:test_tcc/core/theme/app_typography.dart';
+import 'package:test_tcc/data/datasources/session_socket_service.dart';
 import 'package:test_tcc/domain/entities/carona_resumo.dart';
 import 'package:test_tcc/domain/entities/grupo.dart';
 import 'package:test_tcc/domain/entities/mensagem.dart';
@@ -121,6 +122,7 @@ class _GrupoDetalhePageState extends State<GrupoDetalhePage> {
   // Abre o detalhe da carona (onde se pede vaga / o motorista aprova).
   void _abrirCarona(int idCarona) {
     final repo = context.read<CaronaRepository>();
+    final sessionSocket = context.read<SessionSocketService>();
     final userId = context.read<AuthController>().currentUser?.idUsuario;
     if (userId == null) return;
     Navigator.push(
@@ -131,6 +133,7 @@ class _GrupoDetalhePageState extends State<GrupoDetalhePage> {
             repo: repo,
             idCarona: idCarona,
             currentUserId: userId,
+            sessionSocket: sessionSocket,
           )..iniciar(),
           child: const CaronaDetalhePage(),
         ),
