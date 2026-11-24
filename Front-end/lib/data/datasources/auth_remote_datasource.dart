@@ -102,6 +102,36 @@ class AuthRemoteDatasource {
     }
   }
 
+  /// Envia a nova foto de perfil (multipart, campo "foto"). O backend salva o
+  /// arquivo como `<idUsuario>-<ms>.<ext>` e devolve o usuário atualizado.
+  Future<User> atualizarFoto({
+    required List<int> bytes,
+    required String nomeArquivo,
+    required String mimeType,
+  }) async {
+    try {
+      final form = FormData.fromMap({
+        'foto': MultipartFile.fromBytes(
+          bytes,
+          filename: nomeArquivo,
+          contentType: DioMediaType.parse(mimeType),
+        ),
+      });
+      final response = await _dio.put(
+        '/usuarios/me/foto',
+        data: form,
+        // Upload de imagem pode levar mais que os 8s padrão em rede lenta.
+        options: Options(
+          sendTimeout: const Duration(seconds: 30),
+          receiveTimeout: const Duration(seconds: 30),
+        ),
+      );
+      return _userFromJson(response.data as Map<String, dynamic>);
+    } on DioException catch (e) {
+      throw _mapRegisterError(e);
+    }
+  }
+
   /// O backend devolve o usuário no mesmo formato no login, no cadastro e na
   /// edição de perfil.
   User _userFromJson(Map<String, dynamic> u) {
@@ -112,6 +142,7 @@ class AuthRemoteDatasource {
       dataNascimento: DateTime.parse(u['dataNascimento'] as String),
       tipo: TipoUsuario.values.firstWhere((t) => t.name == u['tipo']),
       valor: (u['valor'] as num?)?.toDouble() ?? 0,
+      fotoPerfil: u['fotoPerfil'] as String?,
     );
   }
 

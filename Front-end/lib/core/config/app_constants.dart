@@ -28,4 +28,7 @@ class AppConstants {
   static const double caronaKmMax = 5000;
   static const double caronaValorLitroMin = 0.01;
   static const double caronaValorLitroMax = 99.99;
+
+  // Foto de perfil (espelha FOTO_PERFIL_* em config/security.js no backend).
+  static const int fotoPerfilTamanhoMax = 5 * 1024 * 1024;
 }

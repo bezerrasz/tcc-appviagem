@@ -55,6 +55,15 @@ class InvalidSaldoFailure extends AuthFailure {
       : super('Informe um valor válido (a partir de R\$ 0,00).');
 }
 
+class InvalidFotoFailure extends AuthFailure {
+  const InvalidFotoFailure()
+      : super('Formato inválido. Escolha uma imagem JPG, PNG ou WEBP.');
+}
+
+class FotoTooLargeFailure extends AuthFailure {
+  const FotoTooLargeFailure() : super('A imagem deve ter no máximo 5 MB.');
+}
+
 class RegistrationFailure extends AuthFailure {
   const RegistrationFailure(super.message);
 }

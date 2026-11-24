@@ -5,6 +5,9 @@
 
 # Node.js
 node_modules/
+
+# Arquivos enviados pelos usuarios (fotos de perfil, comprovantes Pix)
+Back-end/uploads/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*

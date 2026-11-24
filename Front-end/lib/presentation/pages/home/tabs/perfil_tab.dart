@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import 'package:test_tcc/core/theme/app_colors.dart';
 import 'package:test_tcc/core/theme/app_spacing.dart';
@@ -10,6 +11,7 @@ import 'package:test_tcc/presentation/controllers/carro_controller.dart';
 import 'package:test_tcc/presentation/pages/perfil/carros_page.dart';
 import 'package:test_tcc/presentation/widgets/app_card.dart';
 import 'package:test_tcc/presentation/widgets/status_badge.dart';
+import 'package:test_tcc/presentation/widgets/user_avatar.dart';
 
 class PerfilTab extends StatefulWidget {
   const PerfilTab({super.key});
@@ -21,6 +23,39 @@ class PerfilTab extends StatefulWidget {
 class _PerfilTabState extends State<PerfilTab> {
   // O GET dos carros (para exibir o carro ativo) é disparado pelo HomeShell
   // sempre que a aba Perfil é aberta.
+
+  bool _enviandoFoto = false;
+
+  /// Abre a galeria (no navegador, o seletor de arquivos) e envia a imagem.
+  /// A imagem é reduzida para no máximo 1024px antes do upload.
+  Future<void> _trocarFoto() async {
+    if (_enviandoFoto) return;
+    final XFile? arquivo;
+    try {
+      arquivo = await ImagePicker().pickImage(
+        source: ImageSource.gallery,
+        maxWidth: 1024,
+        maxHeight: 1024,
+        imageQuality: 85,
+      );
+    } catch (_) {
+      _feedback(false, '', 'Não foi possível abrir a galeria.');
+      return;
+    }
+    if (arquivo == null || !mounted) return;
+
+    final auth = context.read<AuthController>();
+    setState(() => _enviandoFoto = true);
+    try {
+      final bytes = await arquivo.readAsBytes();
+      final ok = await auth.atualizarFoto(bytes);
+      _feedback(ok, 'Foto de perfil atualizada.', auth.error);
+    } catch (_) {
+      _feedback(false, '', 'Não foi possível ler a imagem escolhida.');
+    } finally {
+      if (mounted) setState(() => _enviandoFoto = false);
+    }
+  }
 
   Future<void> _editarEmail(User user) async {
     final controller = TextEditingController(text: user.email);
@@ -86,10 +121,10 @@ class _PerfilTabState extends State<PerfilTab> {
         child: Column(
           children: [
             const SizedBox(height: AppSpacing.lg),
-            const CircleAvatar(
-              radius: 44,
-              backgroundColor: AppColors.primarySoft,
-              child: Icon(Icons.person, size: 48, color: AppColors.primary),
+            _AvatarEditavel(
+              fotoPerfil: user?.fotoPerfil,
+              enviando: _enviandoFoto,
+              onTap: user == null ? null : _trocarFoto,
             ),
             const SizedBox(height: AppSpacing.lg),
             Text(
@@ -149,6 +184,59 @@ class _PerfilTabState extends State<PerfilTab> {
               style: OutlinedButton.styleFrom(
                 foregroundColor: AppColors.error,
                 side: const BorderSide(color: AppColors.error),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Avatar da tela de perfil com o selo de câmera para trocar a foto.
+class _AvatarEditavel extends StatelessWidget {
+  final String? fotoPerfil;
+  final bool enviando;
+  final VoidCallback? onTap;
+
+  const _AvatarEditavel({
+    required this.fotoPerfil,
+    required this.enviando,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      label: 'Alterar foto de perfil',
+      child: GestureDetector(
+        onTap: enviando ? null : onTap,
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            UserAvatar(fotoPerfil: fotoPerfil),
+            if (enviando)
+              const SizedBox(
+                width: 88,
+                height: 88,
+                child: CircularProgressIndicator(strokeWidth: 3),
+              ),
+            Positioned(
+              right: 0,
+              bottom: 0,
+              child: Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: AppColors.primary,
+                  shape: BoxShape.circle,
+                  border: Border.all(color: Colors.white, width: 2),
+                ),
+                child: const Icon(
+                  Icons.photo_camera_outlined,
+                  size: 16,
+                  color: Colors.white,
+                ),
               ),
             ),
           ],

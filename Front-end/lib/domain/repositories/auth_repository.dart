@@ -17,4 +17,10 @@ abstract class AuthRepository {
     DateTime? dataNascimento,
     double? valor,
   });
+
+  Future<User> atualizarFoto({
+    required List<int> bytes,
+    required String nomeArquivo,
+    required String mimeType,
+  });
 }

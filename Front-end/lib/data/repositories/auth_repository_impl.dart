@@ -46,4 +46,17 @@ class AuthRepositoryImpl implements AuthRepository {
       valor: valor,
     );
   }
+
+  @override
+  Future<User> atualizarFoto({
+    required List<int> bytes,
+    required String nomeArquivo,
+    required String mimeType,
+  }) {
+    return remote.atualizarFoto(
+      bytes: bytes,
+      nomeArquivo: nomeArquivo,
+      mimeType: mimeType,
+    );
+  }
 }

@@ -21,6 +21,10 @@ class User {
   /// quanto tem, pela tela Início.
   final double valor;
 
+  /// Nome do arquivo da foto de perfil no servidor
+  /// (`<idUsuario>-<ms>.<ext>`). Nulo quando o usuário não enviou foto.
+  final String? fotoPerfil;
+
   const User({
     required this.idUsuario,
     required this.name,
@@ -28,5 +32,6 @@ class User {
     required this.dataNascimento,
     required this.tipo,
     required this.valor,
+    this.fotoPerfil,
   });
 }

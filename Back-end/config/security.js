@@ -67,4 +67,13 @@ module.exports = {
   // Mensagem quando um motorista tenta anunciar sem ter um carro ativo.
   CARRO_OBRIGATORIO_MSG:
     'Cadastre e selecione um carro ativo antes de anunciar uma carona.',
+  // Foto de perfil: tamanho maximo do upload e formatos aceitos (mimetype ->
+  // extensao gravada no disco). O conteudo tambem e conferido pela assinatura
+  // do arquivo, entao renomear um .html para .png nao passa.
+  FOTO_PERFIL_TAMANHO_MAX: 5 * 1024 * 1024,
+  FOTO_PERFIL_TIPOS: {
+    'image/jpeg': '.jpg',
+    'image/png': '.png',
+    'image/webp': '.webp',
+  },
 };

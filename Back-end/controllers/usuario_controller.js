@@ -4,8 +4,22 @@ const bcrypt = require('bcryptjs');
 const db = require('../models');
 const AppError = require('../utils/app_error');
 const security = require('../config/security');
+const fotoPerfil = require('../utils/foto_perfil');
 
 const TIPOS_VALIDOS = db.Usuario.rawAttributes.tipo.values;
+
+// Formato do usuario devolvido ao app (perfil proprio).
+function usuarioPayload(usuario) {
+  return {
+    idUsuario: usuario.idUsuario,
+    nome: usuario.nome,
+    email: usuario.email,
+    tipo: usuario.tipo,
+    dataNascimento: usuario.dataNascimento,
+    valor: Number(usuario.valor),
+    fotoPerfil: usuario.fotoPerfil,
+  };
+}
 
 function validar(input) {
   const erros = {};
@@ -97,6 +111,7 @@ async function registrar(req, res) {
       dataCadastro: usuario.dataCadastro,
       ativo: usuario.ativo,
       valor: Number(usuario.valor),
+      fotoPerfil: usuario.fotoPerfil,
     });
   } catch (err) {
     if (err instanceof AppError) {
@@ -190,14 +205,7 @@ async function atualizarMe(req, res) {
       await usuario.update(mudancas);
     }
 
-    return res.status(200).json({
-      idUsuario: usuario.idUsuario,
-      nome: usuario.nome,
-      email: usuario.email,
-      tipo: usuario.tipo,
-      dataNascimento: usuario.dataNascimento,
-      valor: Number(usuario.valor),
-    });
+    return res.status(200).json(usuarioPayload(usuario));
   } catch (err) {
     if (err instanceof AppError) {
       return res.status(err.httpStatus).json({
@@ -265,4 +273,47 @@ async function buscar(req, res) {
   }
 }
 
-module.exports = { registrar, buscar, atualizarMe };
+// Troca a foto de perfil do proprio usuario. O arquivo ja foi gravado pelo
+// middleware receberFoto em uploads/profilePictures/<id>-<ms>.<ext>; aqui ele
+// e validado, o nome vai para usuario.fotoPerfil e a foto anterior e apagada.
+async function atualizarFoto(req, res) {
+  const arquivo = req.file;
+  try {
+    if (!arquivo) {
+      throw AppError.validation('Envie a imagem no campo "foto".');
+    }
+    if (!(await fotoPerfil.assinaturaValida(arquivo.path, arquivo.mimetype))) {
+      throw AppError.validation('O arquivo enviado nao e uma imagem valida.');
+    }
+
+    const usuario = await db.Usuario.findByPk(req.user.idUsuario);
+    if (!usuario) {
+      throw AppError.notFound('Usuario nao encontrado.');
+    }
+
+    const anterior = usuario.fotoPerfil;
+    await usuario.update({ fotoPerfil: arquivo.filename });
+    // So apaga a antiga depois de gravar a nova no banco: se o update falhar,
+    // o usuario continua com a foto que tinha.
+    await fotoPerfil.remover(anterior);
+
+    return res.status(200).json(usuarioPayload(usuario));
+  } catch (err) {
+    // Arquivo recebido mas nao aproveitado (invalido ou erro no banco).
+    if (arquivo) await fotoPerfil.remover(arquivo.filename);
+    if (err instanceof AppError) {
+      return res.status(err.httpStatus).json({
+        error: err.type,
+        message: err.message,
+        details: err.details,
+      });
+    }
+    console.error('[usuario_controller.atualizarFoto]', err);
+    return res.status(500).json({
+      error: 'INTERNAL',
+      message: 'Erro interno ao atualizar a foto de perfil.',
+    });
+  }
+}
+
+module.exports = { registrar, buscar, atualizarMe, atualizarFoto };

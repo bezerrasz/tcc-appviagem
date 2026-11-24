@@ -72,6 +72,7 @@ async function login(req, res) {
         dataCadastro: usuario.dataCadastro,
         ativo: usuario.ativo,
         valor: Number(usuario.valor),
+        fotoPerfil: usuario.fotoPerfil,
       },
     });
   } catch (err) {

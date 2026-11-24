@@ -51,6 +51,12 @@ module.exports = (sequelize, DataTypes) => {
         allowNull: false,
         defaultValue: true,
       },
+      // Nome do arquivo da foto de perfil em uploads/profilePictures/
+      // (<idUsuario>-<ms desde a epoca Unix>.<ext>). Nulo = sem foto.
+      fotoPerfil: {
+        type: DataTypes.STRING(255),
+        allowNull: true,
+      },
       // Saldo em reais. Informado manualmente pelo usuario na tela Inicio (sem
       // transacao bancaria). DECIMAL vem como string do MySQL: quem monta o
       // JSON converte com Number().

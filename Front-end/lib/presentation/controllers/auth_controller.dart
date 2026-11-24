@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:test_tcc/core/config/app_constants.dart';
 import 'package:test_tcc/domain/entities/user.dart';
 import 'package:test_tcc/domain/failures/auth_failure.dart';
+import 'package:test_tcc/domain/usecases/atualizar_foto_perfil_usecase.dart';
 import 'package:test_tcc/domain/usecases/atualizar_perfil_usecase.dart';
 import 'package:test_tcc/domain/usecases/login_usecase.dart';
 import 'package:test_tcc/domain/usecases/logout_usecase.dart';
@@ -12,16 +13,19 @@ class AuthController extends ChangeNotifier {
   final RegisterUseCase _registerUseCase;
   final LogoutUseCase _logoutUseCase;
   final AtualizarPerfilUseCase _atualizarPerfilUseCase;
+  final AtualizarFotoPerfilUseCase _atualizarFotoPerfilUseCase;
 
   AuthController({
     required LoginUseCase loginUseCase,
     required RegisterUseCase registerUseCase,
     required LogoutUseCase logoutUseCase,
     required AtualizarPerfilUseCase atualizarPerfilUseCase,
+    required AtualizarFotoPerfilUseCase atualizarFotoPerfilUseCase,
   })  : _loginUseCase = loginUseCase,
         _registerUseCase = registerUseCase,
         _logoutUseCase = logoutUseCase,
-        _atualizarPerfilUseCase = atualizarPerfilUseCase;
+        _atualizarPerfilUseCase = atualizarPerfilUseCase,
+        _atualizarFotoPerfilUseCase = atualizarFotoPerfilUseCase;
 
   User? _currentUser;
   String? _error;
@@ -93,6 +97,21 @@ class AuthController extends ChangeNotifier {
         dataNascimento: dataNascimento,
         valor: valor,
       );
+      _error = null;
+      notifyListeners();
+      return true;
+    } on AuthFailure catch (f) {
+      _error = f.message;
+      notifyListeners();
+      return false;
+    }
+  }
+
+  /// Troca a foto de perfil e atualiza o usuário corrente. Retorna true em
+  /// sucesso; em falha, [error] traz a mensagem.
+  Future<bool> atualizarFoto(List<int> bytes) async {
+    try {
+      _currentUser = await _atualizarFotoPerfilUseCase(bytes: bytes);
       _error = null;
       notifyListeners();
       return true;

@@ -5,6 +5,7 @@ import 'package:test_tcc/data/datasources/auth_remote_datasource.dart';
 import 'package:test_tcc/data/datasources/token_storage.dart';
 import 'package:test_tcc/data/repositories/auth_repository_impl.dart';
 import 'package:test_tcc/domain/repositories/auth_repository.dart';
+import 'package:test_tcc/domain/usecases/atualizar_foto_perfil_usecase.dart';
 import 'package:test_tcc/domain/usecases/atualizar_perfil_usecase.dart';
 import 'package:test_tcc/domain/usecases/login_usecase.dart';
 import 'package:test_tcc/domain/usecases/logout_usecase.dart';
@@ -36,21 +37,29 @@ void main() {
           ProxyProvider<AuthRepository, AtualizarPerfilUseCase>(
             update: (_, repo, _) => AtualizarPerfilUseCase(repo),
           ),
-          ChangeNotifierProxyProvider4<LoginUseCase, RegisterUseCase,
-              LogoutUseCase, AtualizarPerfilUseCase, AuthController>(
+          ProxyProvider<AuthRepository, AtualizarFotoPerfilUseCase>(
+            update: (_, repo, _) => AtualizarFotoPerfilUseCase(repo),
+          ),
+          ChangeNotifierProxyProvider5<LoginUseCase, RegisterUseCase,
+              LogoutUseCase, AtualizarPerfilUseCase, AtualizarFotoPerfilUseCase,
+              AuthController>(
             create: (ctx) => AuthController(
               loginUseCase: ctx.read<LoginUseCase>(),
               registerUseCase: ctx.read<RegisterUseCase>(),
               logoutUseCase: ctx.read<LogoutUseCase>(),
               atualizarPerfilUseCase: ctx.read<AtualizarPerfilUseCase>(),
+              atualizarFotoPerfilUseCase:
+                  ctx.read<AtualizarFotoPerfilUseCase>(),
             ),
-            update: (_, login, register, logout, atualizarPerfil, previous) =>
+            update: (_, login, register, logout, atualizarPerfil,
+                    atualizarFoto, previous) =>
                 previous ??
                 AuthController(
                   loginUseCase: login,
                   registerUseCase: register,
                   logoutUseCase: logout,
                   atualizarPerfilUseCase: atualizarPerfil,
+                  atualizarFotoPerfilUseCase: atualizarFoto,
                 ),
           ),
         ],

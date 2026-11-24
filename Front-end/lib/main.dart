@@ -19,6 +19,7 @@ import 'package:test_tcc/domain/repositories/carona_repository.dart';
 import 'package:test_tcc/domain/repositories/carro_repository.dart';
 import 'package:test_tcc/domain/repositories/chat_repository.dart';
 import 'package:test_tcc/domain/repositories/grupo_repository.dart';
+import 'package:test_tcc/domain/usecases/atualizar_foto_perfil_usecase.dart';
 import 'package:test_tcc/domain/usecases/atualizar_perfil_usecase.dart';
 import 'package:test_tcc/domain/usecases/criar_grupo_usecase.dart';
 import 'package:test_tcc/domain/usecases/listar_grupos_usecase.dart';
@@ -87,6 +88,9 @@ void main() {
         ProxyProvider<AuthRepository, AtualizarPerfilUseCase>(
           update: (_, repo, _) => AtualizarPerfilUseCase(repo),
         ),
+        ProxyProvider<AuthRepository, AtualizarFotoPerfilUseCase>(
+          update: (_, repo, _) => AtualizarFotoPerfilUseCase(repo),
+        ),
         ProxyProvider<TokenStorage, LogoutUseCase>(
           update: (_, storage, _) => LogoutUseCase(storage),
         ),
@@ -97,21 +101,25 @@ void main() {
           update: (_, repo, _) => ListarGruposUseCase(repo),
         ),
         // Controllers
-        ChangeNotifierProxyProvider4<LoginUseCase, RegisterUseCase,
-            LogoutUseCase, AtualizarPerfilUseCase, AuthController>(
+        ChangeNotifierProxyProvider5<LoginUseCase, RegisterUseCase,
+            LogoutUseCase, AtualizarPerfilUseCase, AtualizarFotoPerfilUseCase,
+            AuthController>(
           create: (ctx) => AuthController(
             loginUseCase: ctx.read<LoginUseCase>(),
             registerUseCase: ctx.read<RegisterUseCase>(),
             logoutUseCase: ctx.read<LogoutUseCase>(),
             atualizarPerfilUseCase: ctx.read<AtualizarPerfilUseCase>(),
+            atualizarFotoPerfilUseCase: ctx.read<AtualizarFotoPerfilUseCase>(),
           ),
-          update: (_, login, register, logout, atualizarPerfil, previous) =>
+          update: (_, login, register, logout, atualizarPerfil, atualizarFoto,
+                  previous) =>
               previous ??
               AuthController(
                 loginUseCase: login,
                 registerUseCase: register,
                 logoutUseCase: logout,
                 atualizarPerfilUseCase: atualizarPerfil,
+                atualizarFotoPerfilUseCase: atualizarFoto,
               ),
         ),
         ChangeNotifierProxyProvider<CaronaRepository, CaronaController>(

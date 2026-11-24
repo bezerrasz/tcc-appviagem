@@ -6,6 +6,8 @@ const cors = require('cors');
 const rateLimit = require('express-rate-limit'); // 👈 1. Importamos a biblioteca do escudo
 
 const { sequelize } = require('./models');
+const authenticate = require('./middlewares/authenticate');
+const fotoPerfil = require('./utils/foto_perfil');
 const { initSocket } = require('./realtime/socket_server');
 const healthRoutes = require('./routes/health');
 const usuarioRoutes = require('./routes/usuario');
@@ -40,6 +42,18 @@ const authLimiter = rateLimit({
 
 app.use(cors());
 app.use(express.json());
+
+// Fotos de perfil (uploads/profilePictures). So para usuarios autenticados:
+// o app envia o token no header ao carregar a imagem. Apenas esta subpasta e
+// exposta; os comprovantes Pix em uploads/comprovantes continuam privados.
+app.use(
+  '/uploads/profilePictures',
+  authenticate,
+  express.static(fotoPerfil.PASTA, {
+    index: false,
+    setHeaders: (res) => res.setHeader('X-Content-Type-Options', 'nosniff'),
+  }),
+);
 
 // 4. Aplicamos o escudo global no aplicativo todo, ANTES de abrir as rotas
 //app.use(globalLimiter);
