@@ -1,3 +1,4 @@
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -5,16 +6,20 @@ import 'package:test_tcc/core/config/app_constants.dart';
 import 'package:test_tcc/core/theme/app_colors.dart';
 import 'package:test_tcc/core/theme/app_spacing.dart';
 import 'package:test_tcc/core/theme/app_typography.dart';
+import 'package:test_tcc/core/utils/abrir_arquivo.dart';
 import 'package:test_tcc/core/utils/formatters.dart';
 import 'package:test_tcc/domain/entities/carona_detalhe.dart';
 import 'package:test_tcc/domain/entities/carona_resumo.dart';
+import 'package:test_tcc/presentation/controllers/auth_controller.dart';
 import 'package:test_tcc/presentation/controllers/carona_detalhe_controller.dart';
 import 'package:test_tcc/presentation/widgets/app_card.dart';
 import 'package:test_tcc/presentation/widgets/carona_status_badge.dart';
 import 'package:test_tcc/presentation/widgets/state_views.dart';
 import 'package:test_tcc/presentation/widgets/status_badge.dart';
 
-/// Detalhe de uma carona: motorista + carro + custos/Pix reais + passageiros.
+/// Detalhe de uma carona: motorista + carro + custos + passageiros e, depois
+/// de concluída, o pagamento via Pix (feito por fora do app, com o comprovante
+/// importado aqui).
 class CaronaDetalhePage extends StatefulWidget {
   const CaronaDetalhePage({super.key});
 
@@ -23,9 +28,8 @@ class CaronaDetalhePage extends StatefulWidget {
 }
 
 class _CaronaDetalhePageState extends State<CaronaDetalhePage> {
-  bool _comprovanteEnviado = false;
-  String? _chavePixSalva;
-  final Set<int> _passageirosPixConfirmado = {};
+  bool _enviandoComprovante = false;
+  int? _abrindoComprovanteDe;
 
   String _data(DateTime d) {
     final dd = d.day.toString().padLeft(2, '0');
@@ -33,18 +37,6 @@ class _CaronaDetalhePageState extends State<CaronaDetalhePage> {
     final hh = d.hour.toString().padLeft(2, '0');
     final min = d.minute.toString().padLeft(2, '0');
     return '$dd/$mm/${d.year} • $hh:$min';
-  }
-
-  String? _obterChavePix(CaronaDetalhe detalhe) {
-    if (_chavePixSalva != null && _chavePixSalva!.trim().isNotEmpty) {
-      return _chavePixSalva!.trim();
-    }
-    try {
-      final dyn = detalhe as dynamic;
-      final p = dyn.motoristaPix ?? dyn.chavePix;
-      if (p is String && p.trim().isNotEmpty) return p.trim();
-    } catch (_) {}
-    return detalhe.motoristaNome;
   }
 
   Future<void> _pedir(CaronaDetalheController c) async {
@@ -69,18 +61,19 @@ class _CaronaDetalhePageState extends State<CaronaDetalhePage> {
     );
   }
 
+  /// Custos da viagem (da carona) e chave Pix (do perfil do motorista, vale
+  /// para todas as caronas dele) no mesmo diálogo.
   Future<void> _editarCustos(CaronaDetalheController c) async {
-    final detalhe = c.detalhe;
-    final custos = detalhe?.custos;
+    final auth = context.read<AuthController>();
+    final custos = c.detalhe?.custos;
+    final chaveAtual = auth.currentUser?.chavePix ?? '';
     final kmController = TextEditingController(
       text: _decimal(custos?.kmRodados),
     );
     final litroController = TextEditingController(
       text: _decimal(custos?.valorLitro),
     );
-    final pixController = TextEditingController(
-      text: detalhe != null ? (_obterChavePix(detalhe) ?? '') : '',
-    );
+    final pixController = TextEditingController(text: chaveAtual);
 
     final confirmou = await showDialog<bool>(
       context: context,
@@ -122,9 +115,11 @@ class _CaronaDetalhePageState extends State<CaronaDetalhePage> {
               const SizedBox(height: AppSpacing.md),
               TextField(
                 controller: pixController,
+                maxLength: AppConstants.chavePixMax,
                 decoration: const InputDecoration(
                   labelText: 'Sua Chave Pix',
                   hintText: 'CPF, celular, e-mail ou chave aleatória',
+                  helperText: 'Fica salva no seu perfil.',
                   prefixIcon: Icon(Icons.pix, size: 18),
                 ),
               ),
@@ -147,7 +142,7 @@ class _CaronaDetalhePageState extends State<CaronaDetalhePage> {
 
     final km = parseMoeda(kmController.text);
     final litro = parseMoeda(litroController.text);
-    final novaChavePix = pixController.text.trim();
+    final novaChave = pixController.text.trim();
 
     if (km == null ||
         km < AppConstants.caronaKmMin ||
@@ -167,12 +162,16 @@ class _CaronaDetalhePageState extends State<CaronaDetalhePage> {
       return;
     }
 
-    if (novaChavePix.isNotEmpty) {
-      setState(() => _chavePixSalva = novaChavePix);
+    if (novaChave != chaveAtual) {
+      final salvou = await auth.atualizarPerfil(chavePix: novaChave);
+      if (!salvou) {
+        _aviso(auth.error ?? 'Não foi possível salvar a chave Pix.');
+        return;
+      }
     }
 
     final ok = await c.atualizarCustos(kmRodados: km, valorLitro: litro);
-    _feedback(c, ok, 'Custos e Chave Pix atualizados.');
+    _feedback(c, ok, 'Custos e chave Pix atualizados.');
   }
 
   String _decimal(double? valor) =>
@@ -186,15 +185,23 @@ class _CaronaDetalhePageState extends State<CaronaDetalhePage> {
   }
 
   Future<void> _concluir(CaronaDetalheController c) async {
+    if (c.detalhe?.custos == null) {
+      _aviso('Informe os km rodados e o valor do litro antes de concluir.');
+      return;
+    }
+    final semChave =
+        (context.read<AuthController>().currentUser?.chavePix ?? '').isEmpty;
     final ok = await _confirmar(
       titulo: 'Concluir carona?',
-      mensagem:
-          'Marcar esta carona como concluída e transferir o saldo pendente?',
+      mensagem: 'O valor de cada passageiro aprovado será fixado e eles '
+          'poderão pagar via Pix e enviar o comprovante.'
+          '${semChave ? '\n\nVocê ainda não cadastrou sua chave Pix: '
+              'informe-a em "Custos e chave Pix" ou no seu perfil.' : ''}',
       acao: 'Concluir',
     );
     if (ok != true) return;
     final feito = await c.concluir();
-    _feedback(c, feito, 'Carona concluída e saldo atualizado!');
+    _feedback(c, feito, 'Carona concluída. Pagamentos liberados.');
   }
 
   Future<void> _cancelar(CaronaDetalheController c) async {
@@ -248,47 +255,82 @@ class _CaronaDetalhePageState extends State<CaronaDetalhePage> {
     );
   }
 
-  void _copiarChavePix(String? chave) {
-    if (chave == null || chave.isEmpty) {
-      _aviso('O motorista não cadastrou uma chave Pix.');
+  void _copiarChavePix(String chave) {
+    Clipboard.setData(ClipboardData(text: chave));
+    _aviso('Chave Pix copiada. Faça o Pix no app do seu banco.');
+  }
+
+  /// Passageiro escolhe o comprovante (imagem ou PDF) e envia.
+  Future<void> _importarComprovante(CaronaDetalheController c) async {
+    if (_enviandoComprovante) return;
+    final PlatformFile? arquivo;
+    try {
+      arquivo = await FilePicker.pickFile(
+        dialogTitle: 'Comprovante do Pix',
+        type: FileType.custom,
+        allowedExtensions: AppConstants.comprovanteExtensoes,
+      );
+    } catch (_) {
+      _aviso('Não foi possível abrir a seleção de arquivos.');
       return;
     }
-    Clipboard.setData(ClipboardData(text: chave));
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          'Chave Pix "$chave" copiada para a área de transferência!',
-        ),
-      ),
-    );
+    if (arquivo == null || !mounted) return;
+
+    setState(() => _enviandoComprovante = true);
+    try {
+      final bytes = await arquivo.readAsBytes();
+      final ok = await c.enviarComprovante(bytes);
+      _feedback(c, ok, 'Comprovante enviado. Pagamento registrado!');
+    } catch (_) {
+      _aviso('Não foi possível ler o arquivo escolhido.');
+    } finally {
+      if (mounted) setState(() => _enviandoComprovante = false);
+    }
   }
 
-  void _passageiroAvisarPix() {
-    setState(() => _comprovanteEnviado = true);
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text(
-          'Aviso de Pix enviado! O motorista irá confirmar o recebimento.',
-        ),
-      ),
-    );
-  }
-
-  Future<void> _motoristaConfirmarPixPassageiro(
+  /// Motorista (ou o próprio passageiro) abre o comprovante: imagem aparece
+  /// num diálogo; PDF abre numa nova aba do navegador.
+  Future<void> _verComprovante(
     CaronaDetalheController c,
     PassageiroCarona p,
   ) async {
-    setState(() => _passageirosPixConfirmado.add(p.idUsuario));
-    try {
-      final dyn = c as dynamic;
-      await dyn.confirmarPagamentoPix(p.idUsuario);
-    } catch (_) {
-      // Se o método ainda não existir no controller do Flutter, o concluir() transfere o saldo no banco
-    }
+    if (_abrindoComprovanteDe != null) return;
+    setState(() => _abrindoComprovanteDe = p.idUsuario);
+    final arquivo = await c.baixarComprovante(p.idUsuario);
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Pix de ${p.nome} confirmado pelo motorista!')),
+    setState(() => _abrindoComprovanteDe = null);
+    if (arquivo == null) {
+      _aviso(c.error ?? 'Não foi possível abrir o comprovante.');
+      return;
+    }
+
+    if (arquivo.contentType.startsWith('image/')) {
+      await showDialog<void>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: Text('Comprovante de ${p.nome}'),
+          content: InteractiveViewer(
+            child: Image.memory(arquivo.bytes, fit: BoxFit.contain),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Fechar'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
+    final abriu = abrirArquivo(
+      arquivo.bytes,
+      arquivo.contentType,
+      'comprovante-${p.nome}.pdf',
     );
+    if (!abriu) {
+      _aviso('Para ver comprovantes em PDF, use a versão web do app.');
+    }
   }
 
   @override
@@ -315,15 +357,13 @@ class _CaronaDetalhePageState extends State<CaronaDetalhePage> {
                       controller: c,
                       detalhe: detalhe,
                       dataLabel: _data(detalhe.data),
-                      chavePixMotorista: _obterChavePix(detalhe),
-                      comprovanteEnviado: _comprovanteEnviado,
-                      passageirosPixConfirmado: _passageirosPixConfirmado,
+                      enviandoComprovante: _enviandoComprovante,
+                      abrindoComprovanteDe: _abrindoComprovanteDe,
                       onDecidir: (p, aprovar) => _decidir(c, p, aprovar),
                       onEditarCustos: () => _editarCustos(c),
                       onCopiarPix: _copiarChavePix,
-                      onPassageiroAvisarPix: _passageiroAvisarPix,
-                      onMotoristaConfirmarPix: (p) =>
-                          _motoristaConfirmarPixPassageiro(c, p),
+                      onImportarComprovante: () => _importarComprovante(c),
+                      onVerComprovante: (p) => _verComprovante(c, p),
                     ),
                   ),
                 ),
@@ -439,33 +479,33 @@ class _Conteudo extends StatelessWidget {
   final CaronaDetalheController controller;
   final CaronaDetalhe detalhe;
   final String dataLabel;
-  final String? chavePixMotorista;
-  final bool comprovanteEnviado;
-  final Set<int> passageirosPixConfirmado;
+  final bool enviandoComprovante;
+  final int? abrindoComprovanteDe;
   final void Function(PassageiroCarona, bool aprovar) onDecidir;
   final VoidCallback onEditarCustos;
-  final ValueChanged<String?> onCopiarPix;
-  final VoidCallback onPassageiroAvisarPix;
-  final ValueChanged<PassageiroCarona> onMotoristaConfirmarPix;
+  final ValueChanged<String> onCopiarPix;
+  final VoidCallback onImportarComprovante;
+  final ValueChanged<PassageiroCarona> onVerComprovante;
 
   const _Conteudo({
     required this.controller,
     required this.detalhe,
     required this.dataLabel,
-    required this.chavePixMotorista,
-    required this.comprovanteEnviado,
-    required this.passageirosPixConfirmado,
+    required this.enviandoComprovante,
+    required this.abrindoComprovanteDe,
     required this.onDecidir,
     required this.onEditarCustos,
     required this.onCopiarPix,
-    required this.onPassageiroAvisarPix,
-    required this.onMotoristaConfirmarPix,
+    required this.onImportarComprovante,
+    required this.onVerComprovante,
   });
 
   @override
   Widget build(BuildContext context) {
     final passageiros = detalhe.passageiros;
     final souMotorista = controller.souMotorista;
+    final meuVinculo = controller.meuVinculo;
+    final meuPagamento = meuVinculo?.pagamento;
 
     return ListView(
       padding: const EdgeInsets.all(AppSpacing.xl),
@@ -503,6 +543,26 @@ class _Conteudo extends StatelessWidget {
           ),
         ],
         const SizedBox(height: AppSpacing.xl),
+
+        // Passageiro aprovado de carona concluída: o que pagar e como.
+        if (!souMotorista && meuPagamento != null) ...[
+          Text('Seu pagamento', style: AppTypography.label),
+          const SizedBox(height: AppSpacing.sm),
+          _MeuPagamentoCard(
+            pagamento: meuPagamento,
+            motoristaNome: detalhe.motoristaNome ?? 'o motorista',
+            chavePix: detalhe.chavePixMotorista,
+            podeEnviar: controller.podeEnviarComprovante,
+            enviando: enviandoComprovante,
+            abrindo: abrindoComprovanteDe == meuVinculo?.idUsuario,
+            onCopiarPix: onCopiarPix,
+            onImportar: onImportarComprovante,
+            onVerComprovante: meuVinculo == null
+                ? null
+                : () => onVerComprovante(meuVinculo),
+          ),
+          const SizedBox(height: AppSpacing.xl),
+        ],
 
         Text('Motorista', style: AppTypography.label),
         const SizedBox(height: AppSpacing.sm),
@@ -552,18 +612,13 @@ class _Conteudo extends StatelessWidget {
           const SizedBox(height: AppSpacing.xl),
         ],
 
-        Text('Custos da viagem e Pix', style: AppTypography.label),
+        Text('Custos da viagem', style: AppTypography.label),
         const SizedBox(height: AppSpacing.sm),
         _CustosCard(
           custos: detalhe.custos,
           souMotorista: souMotorista,
           podeEditar: controller.podeEditarCustos,
-          comprovanteEnviado: comprovanteEnviado,
-          motoristaNome: detalhe.motoristaNome ?? 'Motorista',
-          motoristaPix: chavePixMotorista,
           onEditar: onEditarCustos,
-          onCopiarPix: onCopiarPix,
-          onPassageiroAvisarPix: onPassageiroAvisarPix,
         ),
         const SizedBox(height: AppSpacing.xl),
 
@@ -586,19 +641,18 @@ class _Conteudo extends StatelessWidget {
               padding: const EdgeInsets.only(bottom: AppSpacing.md),
               child: _PassageiroCard(
                 passageiro: p,
-                souMotorista: souMotorista,
-                temCustosDefinidos: detalhe.custos != null,
-                pixConfirmado:
-                    passageirosPixConfirmado.contains(p.idUsuario) ||
-                    detalhe.status == StatusCarona.concluida,
+                // Só o motorista vê o pagamento de cada passageiro na lista
+                // (o passageiro vê o próprio no card "Seu pagamento").
+                pagamento: souMotorista ? p.pagamento : null,
                 podeDecidir:
                     souMotorista &&
                     detalhe.status == StatusCarona.aberta &&
                     p.status == StatusPassageiro.pendente,
                 decidindo: controller.estaDecidindo(p.idUsuario),
+                abrindoComprovante: abrindoComprovanteDe == p.idUsuario,
                 onAprovar: () => onDecidir(p, true),
                 onRecusar: () => onDecidir(p, false),
-                onConfirmarPix: () => onMotoristaConfirmarPix(p),
+                onVerComprovante: () => onVerComprovante(p),
               ),
             ),
           ),
@@ -607,27 +661,162 @@ class _Conteudo extends StatelessWidget {
   }
 }
 
+/// Card do passageiro com o valor a pagar, a chave Pix do motorista e a
+/// importação do comprovante (ou a confirmação de que já pagou).
+class _MeuPagamentoCard extends StatelessWidget {
+  final PagamentoPassageiro pagamento;
+  final String motoristaNome;
+  final String? chavePix;
+  final bool podeEnviar;
+  final bool enviando;
+  final bool abrindo;
+  final ValueChanged<String> onCopiarPix;
+  final VoidCallback onImportar;
+  final VoidCallback? onVerComprovante;
+
+  const _MeuPagamentoCard({
+    required this.pagamento,
+    required this.motoristaNome,
+    required this.chavePix,
+    required this.podeEnviar,
+    required this.enviando,
+    required this.abrindo,
+    required this.onCopiarPix,
+    required this.onImportar,
+    required this.onVerComprovante,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final chave = chavePix;
+    final temChave = chave != null && chave.isNotEmpty;
+
+    return AppCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  pagamento.pago ? 'Você pagou' : 'Valor a pagar',
+                  style: AppTypography.caption,
+                ),
+              ),
+              Text(
+                formatMoeda(pagamento.valor),
+                style: TextStyle(
+                  color: pagamento.pago ? AppColors.success : AppColors.primary,
+                  fontSize: 20,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          if (pagamento.pago) ...[
+            Row(
+              children: [
+                const StatusBadge(
+                  label: 'Pago',
+                  color: AppColors.success,
+                  icon: Icons.check_circle_outline,
+                ),
+                const SizedBox(width: AppSpacing.sm),
+                if (pagamento.dataPagamento != null)
+                  Expanded(
+                    child: Text(
+                      'em ${formatData(pagamento.dataPagamento!)}',
+                      style: AppTypography.caption,
+                    ),
+                  ),
+              ],
+            ),
+            if (pagamento.temComprovante && onVerComprovante != null) ...[
+              const SizedBox(height: AppSpacing.sm),
+              OutlinedButton.icon(
+                onPressed: abrindo ? null : onVerComprovante,
+                icon: const Icon(Icons.receipt_long_outlined, size: 16),
+                label: const Text('Ver meu comprovante'),
+              ),
+            ],
+          ] else ...[
+            Text(
+              'Faça o Pix para $motoristaNome pelo app do seu banco e depois '
+              'importe o comprovante aqui.',
+              style: AppTypography.caption,
+            ),
+            const SizedBox(height: AppSpacing.md),
+            Container(
+              padding: const EdgeInsets.all(AppSpacing.md),
+              decoration: BoxDecoration(
+                color: AppColors.primarySoft,
+                borderRadius: BorderRadius.circular(AppRadius.md),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.pix, color: AppColors.primary, size: 20),
+                  const SizedBox(width: AppSpacing.sm),
+                  Expanded(
+                    child: Text(
+                      temChave
+                          ? chave
+                          : 'O motorista ainda não cadastrou a chave Pix. '
+                                'Combine o pagamento com ele.',
+                      style: temChave
+                          ? AppTypography.label
+                          : AppTypography.caption,
+                    ),
+                  ),
+                  if (temChave)
+                    IconButton(
+                      onPressed: () => onCopiarPix(chave),
+                      icon: const Icon(Icons.copy, size: 18),
+                      color: AppColors.primary,
+                      tooltip: 'Copiar chave Pix',
+                    ),
+                ],
+              ),
+            ),
+            const SizedBox(height: AppSpacing.md),
+            FilledButton.icon(
+              onPressed: podeEnviar && !enviando ? onImportar : null,
+              icon: enviando
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: AppColors.onPrimary,
+                      ),
+                    )
+                  : const Icon(Icons.upload_file, size: 18),
+              label: Text(enviando ? 'Enviando...' : 'Importar comprovante'),
+            ),
+            const SizedBox(height: AppSpacing.xs),
+            Text(
+              'Imagem (JPG, PNG, WEBP) ou PDF, até 5 MB.',
+              style: AppTypography.caption,
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
 class _CustosCard extends StatelessWidget {
   final CustosCarona? custos;
   final bool souMotorista;
   final bool podeEditar;
-  final bool comprovanteEnviado;
-  final String motoristaNome;
-  final String? motoristaPix;
   final VoidCallback onEditar;
-  final ValueChanged<String?> onCopiarPix;
-  final VoidCallback onPassageiroAvisarPix;
 
   const _CustosCard({
     required this.custos,
     required this.souMotorista,
     required this.podeEditar,
-    required this.comprovanteEnviado,
-    required this.motoristaNome,
-    required this.motoristaPix,
     required this.onEditar,
-    required this.onCopiarPix,
-    required this.onPassageiroAvisarPix,
   });
 
   @override
@@ -647,7 +836,8 @@ class _CustosCard extends StatelessWidget {
             Expanded(
               child: Text(
                 podeEditar
-                    ? 'Informe os km rodados, valor do litro e sua Chave Pix.'
+                    ? 'Informe os km rodados, o valor do litro e sua chave '
+                          'Pix. Os custos são obrigatórios para concluir.'
                     : 'O motorista ainda não informou os custos da viagem.',
                 style: AppTypography.caption,
               ),
@@ -659,10 +849,11 @@ class _CustosCard extends StatelessWidget {
       );
     }
 
-    final porPassageiro = c.valorPorPassageiro;
-    final saldoMotorista = porPassageiro != null
-        ? porPassageiro * c.passageiros
-        : 0.0;
+    final porPessoa = c.valorPorPassageiro;
+    // c.passageiros conta quem divide o total: passageiros aprovados + o
+    // motorista, que paga a própria parte. Ele recebe dos demais.
+    final pagantes = (c.passageiros - 1).clamp(0, c.passageiros);
+    final aReceberMotorista = porPessoa == null ? 0.0 : porPessoa * pagantes;
 
     return AppCard(
       child: Column(
@@ -679,7 +870,7 @@ class _CustosCard extends StatelessWidget {
                   onPressed: onEditar,
                   icon: const Icon(Icons.edit_outlined, size: 18),
                   color: AppColors.primary,
-                  tooltip: 'Editar custos e Chave Pix',
+                  tooltip: 'Editar custos e chave Pix',
                   visualDensity: VisualDensity.compact,
                 ),
             ],
@@ -695,8 +886,6 @@ class _CustosCard extends StatelessWidget {
             label: 'Taxa (${formatMoeda(c.taxaPorKm)}/km)',
             valor: formatMoeda(c.taxa),
           ),
-          if (motoristaPix != null && motoristaPix!.isNotEmpty)
-            _LinhaCusto(label: 'Chave Pix', valor: motoristaPix!),
           const SizedBox(height: AppSpacing.md),
           Container(
             width: double.infinity,
@@ -705,7 +894,7 @@ class _CustosCard extends StatelessWidget {
               color: AppColors.primarySoft,
               borderRadius: BorderRadius.circular(AppRadius.md),
             ),
-            child: porPassageiro == null
+            child: porPessoa == null || pagantes == 0
                 ? Text(
                     'Sem passageiros aprovados: o total ainda não tem como ser dividido.',
                     style: AppTypography.caption,
@@ -717,12 +906,12 @@ class _CustosCard extends StatelessWidget {
                         children: [
                           Expanded(
                             child: Text(
-                              'Por passageiro (${c.passageiros})',
+                              'Por pessoa (${c.passageiros}, com o motorista)',
                               style: AppTypography.label,
                             ),
                           ),
                           Text(
-                            formatMoeda(porPassageiro),
+                            formatMoeda(porPessoa),
                             style: const TextStyle(
                               color: AppColors.primary,
                               fontSize: 18,
@@ -737,12 +926,12 @@ class _CustosCard extends StatelessWidget {
                           children: [
                             Expanded(
                               child: Text(
-                                'Saldo total a receber',
+                                'Você recebe dos $pagantes passageiro(s)',
                                 style: AppTypography.caption,
                               ),
                             ),
                             Text(
-                              formatMoeda(saldoMotorista),
+                              formatMoeda(aReceberMotorista),
                               style: const TextStyle(
                                 color: AppColors.success,
                                 fontSize: 16,
@@ -760,88 +949,6 @@ class _CustosCard extends StatelessWidget {
             'Consumo médio considerado: ${_numero(c.consumoMedio)} km/L.',
             style: AppTypography.caption,
           ),
-          if (souMotorista && podeEditar) ...[
-            const SizedBox(height: AppSpacing.md),
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                onPressed: onEditar,
-                icon: const Icon(Icons.pix, size: 18),
-                label: Text(
-                  motoristaPix == null || motoristaPix!.isEmpty
-                      ? 'Adicionar Chave Pix'
-                      : 'Alterar Custos / Chave Pix',
-                ),
-              ),
-            ),
-          ],
-          if (!souMotorista && porPassageiro != null) ...[
-            const SizedBox(height: AppSpacing.md),
-            Container(
-              padding: const EdgeInsets.all(AppSpacing.md),
-              decoration: BoxDecoration(
-                color: AppColors.background,
-                borderRadius: BorderRadius.circular(AppRadius.md),
-                border: Border.all(color: AppColors.border),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Row(
-                    children: [
-                      const Icon(Icons.pix, color: AppColors.primary, size: 20),
-                      const SizedBox(width: AppSpacing.sm),
-                      Expanded(
-                        child: Text(
-                          'Pix para $motoristaNome',
-                          style: AppTypography.label,
-                        ),
-                      ),
-                      if (comprovanteEnviado)
-                        const StatusBadge(
-                          label: 'Enviado',
-                          color: AppColors.success,
-                          icon: Icons.check_circle_outline,
-                        ),
-                    ],
-                  ),
-                  if (motoristaPix != null && motoristaPix!.isNotEmpty) ...[
-                    const SizedBox(height: 4),
-                    Text('Chave: $motoristaPix', style: AppTypography.caption),
-                  ],
-                  const SizedBox(height: AppSpacing.sm),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: () => onCopiarPix(motoristaPix),
-                          icon: const Icon(Icons.copy, size: 16),
-                          label: const Text('Copiar Chave Pix'),
-                        ),
-                      ),
-                      const SizedBox(width: AppSpacing.sm),
-                      Expanded(
-                        child: FilledButton.icon(
-                          onPressed: comprovanteEnviado
-                              ? null
-                              : onPassageiroAvisarPix,
-                          icon: Icon(
-                            comprovanteEnviado
-                                ? Icons.check
-                                : Icons.send_outlined,
-                            size: 16,
-                          ),
-                          label: Text(
-                            comprovanteEnviado ? 'Avisado' : 'Já fiz o Pix',
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ],
         ],
       ),
     );
@@ -918,25 +1025,25 @@ class _PessoaCard extends StatelessWidget {
 
 class _PassageiroCard extends StatelessWidget {
   final PassageiroCarona passageiro;
-  final bool souMotorista;
-  final bool temCustosDefinidos;
-  final bool pixConfirmado;
+
+  /// Pagamento do passageiro (só para o motorista, depois de concluída).
+  final PagamentoPassageiro? pagamento;
   final bool podeDecidir;
   final bool decidindo;
+  final bool abrindoComprovante;
   final VoidCallback onAprovar;
   final VoidCallback onRecusar;
-  final VoidCallback onConfirmarPix;
+  final VoidCallback onVerComprovante;
 
   const _PassageiroCard({
     required this.passageiro,
-    required this.souMotorista,
-    required this.temCustosDefinidos,
-    required this.pixConfirmado,
+    required this.pagamento,
     required this.podeDecidir,
     required this.decidindo,
+    required this.abrindoComprovante,
     required this.onAprovar,
     required this.onRecusar,
-    required this.onConfirmarPix,
+    required this.onVerComprovante,
   });
 
   ({Color cor, IconData icone}) get _visual => switch (passageiro.status) {
@@ -960,6 +1067,7 @@ class _PassageiroCard extends StatelessWidget {
         ? '?'
         : passageiro.nome.trim().characters.first.toUpperCase();
     final v = _visual;
+    final pg = pagamento;
 
     return AppCard(
       child: Column(
@@ -1025,25 +1133,43 @@ class _PassageiroCard extends StatelessWidget {
               ],
             ),
           ],
-          if (souMotorista &&
-              passageiro.status == StatusPassageiro.aprovado &&
-              temCustosDefinidos) ...[
-            const SizedBox(height: AppSpacing.sm),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton.icon(
-                onPressed: pixConfirmado ? null : onConfirmarPix,
-                icon: Icon(
-                  pixConfirmado ? Icons.check_circle_outline : Icons.pix,
-                  size: 16,
+          if (pg != null) ...[
+            const Divider(height: AppSpacing.lg),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    pg.pago
+                        ? 'Pagou ${formatMoeda(pg.valor)}'
+                            '${pg.dataPagamento != null ? ' em ${formatData(pg.dataPagamento!)}' : ''}'
+                        : 'Deve ${formatMoeda(pg.valor)}',
+                    style: AppTypography.caption,
+                  ),
                 ),
-                label: Text(
-                  pixConfirmado
-                      ? 'Pix Confirmado (Saldo Transferido)'
-                      : 'Confirmar Recebimento Pix',
+                StatusBadge(
+                  label: pg.pago ? 'Pago' : 'Pendente',
+                  color: pg.pago ? AppColors.success : AppColors.warning,
+                  icon: pg.pago ? Icons.check_circle_outline : Icons.schedule,
+                ),
+              ],
+            ),
+            if (pg.temComprovante) ...[
+              const SizedBox(height: AppSpacing.sm),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: abrindoComprovante ? null : onVerComprovante,
+                  icon: abrindoComprovante
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.receipt_long_outlined, size: 16),
+                  label: const Text('Ver comprovante'),
                 ),
               ),
-            ),
+            ],
           ],
         ],
       ),

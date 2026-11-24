@@ -11,10 +11,8 @@ module.exports = {
   CPF_TAMANHO: 11,
   EMAIL_REGEX: /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
   GRUPO_NOME_TAMANHO_MIN: 3,
-  // Saldo (em reais) do usuario. Nao ha transacao bancaria: o proprio usuario
-  // informa o valor na tela Inicio, entao so limitamos a faixa aceita.
-  SALDO_MIN: 0,
-  SALDO_MAX: 999999.99,
+  // Chave Pix: no maximo 77 caracteres (o tamanho da maior chave, e-mail).
+  CHAVE_PIX_MAX: 77,
   MENSAGEM_TAMANHO_MIN: 1,
   MENSAGEM_TAMANHO_MAX: 2000,
   BUSCA_TAMANHO_MIN: 2,
@@ -76,4 +74,16 @@ module.exports = {
     'image/png': '.png',
     'image/webp': '.webp',
   },
+  // Comprovante Pix importado pelo passageiro: imagem ou PDF (formato que
+  // muitos bancos usam), tambem conferido pela assinatura do arquivo.
+  COMPROVANTE_TAMANHO_MAX: 5 * 1024 * 1024,
+  COMPROVANTE_TIPOS: {
+    'image/jpeg': '.jpg',
+    'image/png': '.png',
+    'image/webp': '.webp',
+    'application/pdf': '.pdf',
+  },
+  // Mensagem quando o motorista tenta concluir sem informar os custos.
+  CARONA_CUSTOS_OBRIGATORIOS_MSG:
+    'Informe os km rodados e o valor do litro antes de concluir a carona.',
 };

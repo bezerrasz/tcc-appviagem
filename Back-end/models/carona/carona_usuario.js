@@ -26,6 +26,21 @@ module.exports = (sequelize, DataTypes) => {
         defaultValue: security.CARONA_PASSAGEIRO_STATUS.PENDENTE,
       },
       // Nula no pedido; so faz sentido quando houver rota definida.
+      // Pagamento (so para aprovados de caronas concluidas). valorDevido e o
+      // rateio fixado na conclusao; dataPagamento nula = pendente.
+      valorDevido: {
+        type: DataTypes.DECIMAL(10, 2),
+        allowNull: true,
+      },
+      // Nome do arquivo do comprovante Pix em uploads/comprovantes/.
+      comprovante: {
+        type: DataTypes.STRING(255),
+        allowNull: true,
+      },
+      dataPagamento: {
+        type: DataTypes.DATE,
+        allowNull: true,
+      },
       distancia: {
         type: DataTypes.FLOAT,
         allowNull: true,

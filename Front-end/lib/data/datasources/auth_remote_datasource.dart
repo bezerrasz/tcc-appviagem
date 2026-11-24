@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 import 'package:test_tcc/core/config/api_config.dart';
 import 'package:test_tcc/data/datasources/token_storage.dart';
+import 'package:test_tcc/domain/entities/resumo_financeiro.dart';
 import 'package:test_tcc/domain/entities/user.dart';
 import 'package:test_tcc/domain/failures/auth_failure.dart';
 
@@ -80,12 +81,13 @@ class AuthRemoteDatasource {
     }
   }
 
-  /// Atualiza o próprio perfil (e-mail, data de nascimento e/ou saldo). Envia
-  /// só os campos informados. Retorna o usuário com os dados atualizados.
+  /// Atualiza o próprio perfil (e-mail, data de nascimento e/ou chave Pix).
+  /// Envia só os campos informados (chave Pix vazia remove a chave). Retorna o
+  /// usuário com os dados atualizados.
   Future<User> atualizarPerfil({
     String? email,
     DateTime? dataNascimento,
-    double? valor,
+    String? chavePix,
   }) async {
     try {
       final data = <String, dynamic>{};
@@ -94,7 +96,7 @@ class AuthRemoteDatasource {
         data['dataNascimento'] =
             dataNascimento.toIso8601String().substring(0, 10);
       }
-      if (valor != null) data['valor'] = valor;
+      if (chavePix != null) data['chavePix'] = chavePix;
       final response = await _dio.patch('/usuarios/me', data: data);
       return _userFromJson(response.data as Map<String, dynamic>);
     } on DioException catch (e) {
@@ -141,9 +143,42 @@ class AuthRemoteDatasource {
       email: u['email'] as String,
       dataNascimento: DateTime.parse(u['dataNascimento'] as String),
       tipo: TipoUsuario.values.firstWhere((t) => t.name == u['tipo']),
-      valor: (u['valor'] as num?)?.toDouble() ?? 0,
+      saldoPago: (u['saldoPago'] as num?)?.toDouble() ?? 0,
+      saldoRecebido: (u['saldoRecebido'] as num?)?.toDouble() ?? 0,
+      chavePix: u['chavePix'] as String?,
       fotoPerfil: u['fotoPerfil'] as String?,
     );
+  }
+
+  /// Saldos pago/recebido e os pagamentos pendentes das caronas que o usuário
+  /// conduziu (tela Início).
+  Future<ResumoFinanceiro> financeiro() async {
+    try {
+      final response = await _dio.get('/usuarios/me/financeiro');
+      final j = response.data as Map<String, dynamic>;
+      double n(Object? v) => (v as num?)?.toDouble() ?? 0;
+      return ResumoFinanceiro(
+        saldoPago: n(j['saldoPago']),
+        saldoRecebido: n(j['saldoRecebido']),
+        totalAReceber: n(j['totalAReceber']),
+        totalGeral: n(j['totalGeral']),
+        aReceber: (j['aReceber'] as List<dynamic>? ?? const [])
+            .map((e) => e as Map<String, dynamic>)
+            .map((i) => ValorAReceber(
+                  idCarona: i['idCarona'] as int,
+                  data: DateTime.parse(i['data'] as String).toLocal(),
+                  destino: i['destino'] as String?,
+                  grupoNome: i['grupoNome'] as String?,
+                  idPassageiro: i['idPassageiro'] as int,
+                  passageiroNome:
+                      (i['passageiroNome'] as String?) ?? 'Passageiro',
+                  valor: n(i['valor']),
+                ))
+            .toList(growable: false),
+      );
+    } on DioException catch (e) {
+      throw _mapRegisterError(e);
+    }
   }
 
   AuthFailure _mapLoginError(DioException e) {

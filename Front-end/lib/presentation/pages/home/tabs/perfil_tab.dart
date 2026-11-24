@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
+import 'package:test_tcc/core/config/app_constants.dart';
 import 'package:test_tcc/core/theme/app_colors.dart';
 import 'package:test_tcc/core/theme/app_spacing.dart';
 import 'package:test_tcc/core/theme/app_typography.dart';
@@ -87,6 +88,46 @@ class _PerfilTabState extends State<PerfilTab> {
     _feedback(ok, 'E-mail atualizado.', auth.error);
   }
 
+  /// Chave Pix do motorista: mostrada aos passageiros quando a carona termina.
+  /// Salvar vazio remove a chave.
+  Future<void> _editarChavePix(User user) async {
+    final controller = TextEditingController(text: user.chavePix ?? '');
+    final nova = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Chave Pix'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          maxLength: AppConstants.chavePixMax,
+          decoration: const InputDecoration(
+            labelText: 'Chave Pix',
+            hintText: 'CPF, celular, e-mail ou chave aleatória',
+            helperText: 'Os passageiros veem quando a carona é concluída.',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, controller.text.trim()),
+            child: const Text('Salvar'),
+          ),
+        ],
+      ),
+    );
+    if (nova == null || nova == (user.chavePix ?? '') || !mounted) return;
+    final auth = context.read<AuthController>();
+    final ok = await auth.atualizarPerfil(chavePix: nova);
+    _feedback(
+      ok,
+      nova.isEmpty ? 'Chave Pix removida.' : 'Chave Pix atualizada.',
+      auth.error,
+    );
+  }
+
   Future<void> _editarDataNascimento(User user) async {
     final hoje = DateTime.now();
     final escolhida = await showDatePicker(
@@ -161,6 +202,17 @@ class _PerfilTabState extends State<PerfilTab> {
                       value: user.email,
                       onEdit: () => _editarEmail(user),
                     ),
+                    if (user.recebeCaronas) ...[
+                      const Divider(height: 1),
+                      _InfoRow(
+                        icon: Icons.pix,
+                        label: 'Chave Pix',
+                        value: (user.chavePix ?? '').isEmpty
+                            ? 'Não cadastrada'
+                            : user.chavePix!,
+                        onEdit: () => _editarChavePix(user),
+                      ),
+                    ],
                     const Divider(height: 1),
                     _InfoRow(
                       icon: Icons.directions_car_outlined,

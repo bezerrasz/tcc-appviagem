@@ -4,6 +4,7 @@ import 'package:test_tcc/domain/entities/user.dart';
 import 'package:test_tcc/presentation/controllers/auth_controller.dart';
 import 'package:test_tcc/presentation/controllers/carona_controller.dart';
 import 'package:test_tcc/presentation/controllers/carro_controller.dart';
+import 'package:test_tcc/presentation/controllers/financeiro_controller.dart';
 import 'package:test_tcc/presentation/controllers/grupo_controller.dart';
 import 'package:test_tcc/presentation/pages/home/tabs/inicio_tab.dart';
 import 'package:test_tcc/presentation/pages/home/tabs/grupos_tab.dart';
@@ -29,6 +30,7 @@ class _HomeShellState extends State<HomeShell> {
       if (!mounted) return;
       final grupos = context.read<GrupoController>();
       grupos.carregar();
+      context.read<FinanceiroController>().carregar();
       // Realtime de sessão: recebe ao vivo grupos em que o usuário for
       // adicionado enquanto está logado. Encerrado no dispose (logout).
       grupos.iniciarSessaoRealtime();
@@ -38,6 +40,8 @@ class _HomeShellState extends State<HomeShell> {
   @override
   void dispose() {
     context.read<GrupoController>().encerrarSessaoRealtime();
+    // Logout: não mostrar os saldos deste usuário para o próximo.
+    context.read<FinanceiroController>().limpar();
     super.dispose();
   }
 
@@ -54,6 +58,7 @@ class _HomeShellState extends State<HomeShell> {
     final grupos = context.read<GrupoController>();
     final caronas = context.read<CaronaController>();
     final carros = context.read<CarroController>();
+    final financeiro = context.read<FinanceiroController>();
 
     final tabs = <_TabItem>[
       _TabItem(
@@ -66,7 +71,10 @@ class _HomeShellState extends State<HomeShell> {
           selectedIcon: Icon(Icons.home),
           label: 'Início',
         ),
-        onShow: grupos.carregar,
+        onShow: () {
+          grupos.carregar();
+          financeiro.carregar();
+        },
       ),
       _TabItem(
         page: const GruposTab(),

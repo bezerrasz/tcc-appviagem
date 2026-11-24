@@ -1,4 +1,5 @@
 import 'package:test_tcc/data/datasources/auth_remote_datasource.dart';
+import 'package:test_tcc/domain/entities/resumo_financeiro.dart';
 import 'package:test_tcc/domain/entities/user.dart';
 import 'package:test_tcc/domain/repositories/auth_repository.dart';
 
@@ -38,14 +39,17 @@ class AuthRepositoryImpl implements AuthRepository {
   Future<User> atualizarPerfil({
     String? email,
     DateTime? dataNascimento,
-    double? valor,
+    String? chavePix,
   }) {
     return remote.atualizarPerfil(
       email: email,
       dataNascimento: dataNascimento,
-      valor: valor,
+      chavePix: chavePix,
     );
   }
+
+  @override
+  Future<ResumoFinanceiro> financeiro() => remote.financeiro();
 
   @override
   Future<User> atualizarFoto({

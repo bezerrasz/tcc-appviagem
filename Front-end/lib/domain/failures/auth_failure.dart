@@ -50,9 +50,9 @@ class UnderageFailure extends AuthFailure {
   const UnderageFailure() : super('Usuário deve ter no mínimo 18 anos.');
 }
 
-class InvalidSaldoFailure extends AuthFailure {
-  const InvalidSaldoFailure()
-      : super('Informe um valor válido (a partir de R\$ 0,00).');
+class InvalidChavePixFailure extends AuthFailure {
+  const InvalidChavePixFailure()
+      : super('A chave Pix deve ter no máximo 77 caracteres.');
 }
 
 class InvalidFotoFailure extends AuthFailure {

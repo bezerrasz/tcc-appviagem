@@ -6,6 +6,7 @@ const db = require('../models');
 const AppError = require('../utils/app_error');
 const jwtConfig = require('../config/jwt');
 const security = require('../config/security');
+const { usuarioPayload } = require('../utils/usuario_payload');
 
 const CREDENCIAIS_INVALIDAS = 'Usuario ou senha invalidos.';
 const USUARIO_INATIVO = 'Usuario inativo. Contate o administrador.';
@@ -63,17 +64,7 @@ async function login(req, res) {
 
     return res.status(200).json({
       token,
-      usuario: {
-        idUsuario: usuario.idUsuario,
-        nome: usuario.nome,
-        email: usuario.email,
-        tipo: usuario.tipo,
-        dataNascimento: usuario.dataNascimento,
-        dataCadastro: usuario.dataCadastro,
-        ativo: usuario.ativo,
-        valor: Number(usuario.valor),
-        fotoPerfil: usuario.fotoPerfil,
-      },
+      usuario: usuarioPayload(usuario),
     });
   } catch (err) {
     if (err instanceof AppError) {

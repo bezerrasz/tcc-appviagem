@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:test_tcc/domain/entities/carona_detalhe.dart';
 import 'package:test_tcc/domain/entities/carona_item.dart';
 import 'package:test_tcc/domain/entities/carona_resumo.dart';
@@ -30,8 +32,24 @@ abstract class CaronaRepository {
     required double valorLitro,
   });
 
-  /// Conclui a carona (só motorista). Retorna o novo status.
-  Future<StatusCarona> concluir(int idCarona);
+  /// Conclui a carona (só motorista): fixa o valor de cada passageiro e libera
+  /// a chave Pix. Retorna o detalhe atualizado.
+  Future<CaronaDetalhe> concluir(int idCarona);
+
+  /// Passageiro importa o comprovante do Pix (imagem ou PDF): a pendência é
+  /// dada como paga e os saldos atualizados. Retorna o detalhe atualizado.
+  Future<CaronaDetalhe> enviarComprovante({
+    required int idCarona,
+    required List<int> bytes,
+    required String nomeArquivo,
+    required String mimeType,
+  });
+
+  /// Arquivo do comprovante de um passageiro.
+  Future<({Uint8List bytes, String contentType})> baixarComprovante({
+    required int idCarona,
+    required int idPassageiro,
+  });
 
   /// Cancela a carona (só motorista). Retorna o novo status.
   Future<StatusCarona> cancelar(int idCarona);

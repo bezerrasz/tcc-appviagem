@@ -29,6 +29,7 @@ import 'package:test_tcc/domain/usecases/register_usecase.dart';
 import 'package:test_tcc/presentation/controllers/auth_controller.dart';
 import 'package:test_tcc/presentation/controllers/carona_controller.dart';
 import 'package:test_tcc/presentation/controllers/carro_controller.dart';
+import 'package:test_tcc/presentation/controllers/financeiro_controller.dart';
 import 'package:test_tcc/presentation/controllers/grupo_controller.dart';
 
 void main() {
@@ -125,6 +126,12 @@ void main() {
         ChangeNotifierProxyProvider<CaronaRepository, CaronaController>(
           create: (ctx) => CaronaController(ctx.read<CaronaRepository>()),
           update: (_, repo, previous) => previous ?? CaronaController(repo),
+        ),
+        ChangeNotifierProvider<FinanceiroController>(
+          create: (ctx) => FinanceiroController(
+            repo: ctx.read<AuthRepository>(),
+            sessionSocket: ctx.read<SessionSocketService>(),
+          ),
         ),
         ChangeNotifierProxyProvider<CarroRepository, CarroController>(
           create: (ctx) => CarroController(ctx.read<CarroRepository>()),

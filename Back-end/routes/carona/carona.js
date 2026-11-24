@@ -1,12 +1,11 @@
 'use strict';
 
 const { Router } = require('express');
-const multer = require('multer');
 const caronaController = require('../../controllers/carona/carona_controller');
 const authenticate = require('../../middlewares/authenticate');
+const { receberComprovante } = require('../../utils/comprovante');
 
 const router = Router();
-const upload = multer({ dest: 'uploads/comprovantes/' });
 
 // Motorista anuncia uma carona no grupo.
 router.post('/grupos/:idGrupo/caronas', authenticate, caronaController.anunciar);
@@ -32,8 +31,19 @@ router.patch('/caronas/:idCarona/custos', authenticate, caronaController.atualiz
 router.patch('/caronas/:idCarona/concluir', authenticate, caronaController.concluir);
 router.patch('/caronas/:idCarona/cancelar', authenticate, caronaController.cancelar);
 
-// Rotas PIX (Atualizadas)
-router.post('/caronas/:idCarona/pix', authenticate, upload.single('comprovante'), caronaController.enviarComprovante);
-router.post('/caronas/:idCarona/pix/confirmar/:idPassageiro', authenticate, caronaController.confirmarPagamentoPix);
+// Pagamento via Pix (feito por fora do app). O passageiro aprovado importa o
+// comprovante depois da carona concluida (multipart, campo "comprovante"); o
+// motorista e o proprio passageiro podem ver o arquivo.
+router.post(
+  '/caronas/:idCarona/comprovante',
+  authenticate,
+  receberComprovante,
+  caronaController.enviarComprovante,
+);
+router.get(
+  '/caronas/:idCarona/passageiros/:idPassageiro/comprovante',
+  authenticate,
+  caronaController.verComprovante,
+);
 
 module.exports = router;

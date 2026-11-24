@@ -57,9 +57,26 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.STRING(255),
         allowNull: true,
       },
-      // Saldo em reais. Informado manualmente pelo usuario na tela Inicio (sem
-      // transacao bancaria). DECIMAL vem como string do MySQL: quem monta o
-      // JSON converte com Number().
+      // Saldos em reais, alterados so quando um comprovante Pix e importado:
+      // saldoPago = total pago como passageiro; saldoRecebido = total recebido
+      // como motorista. DECIMAL vem como string do MySQL: quem monta o JSON
+      // converte com Number().
+      saldoPago: {
+        type: DataTypes.DECIMAL(10, 2),
+        allowNull: false,
+        defaultValue: 0,
+      },
+      saldoRecebido: {
+        type: DataTypes.DECIMAL(10, 2),
+        allowNull: false,
+        defaultValue: 0,
+      },
+      // Chave Pix do motorista, exibida aos passageiros aprovados quando a
+      // carona e concluida.
+      chavePix: {
+        type: DataTypes.STRING(77),
+        allowNull: true,
+      },
     },
     {
       tableName: 'usuario',

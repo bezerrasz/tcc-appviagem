@@ -21,8 +21,15 @@ class SessionSocketService {
   io.Socket? _socket;
   StreamController<Grupo>? _controller;
 
+  // Avisos de que os saldos/pendências do usuário mudaram (carona concluída ou
+  // comprovante importado). Stream de vida longa: quem escuta não precisa se
+  // reinscrever a cada (re)conexão.
+  final StreamController<void> _financeiro = StreamController<void>.broadcast();
+
   SessionSocketService({required TokenStorage tokenStorage})
     : _tokenStorage = tokenStorage;
+
+  Stream<void> get financeiroAtualizado => _financeiro.stream;
 
   /// Conecta e devolve o stream de grupos em que o usuário foi adicionado.
   Stream<Grupo> conectar() {
@@ -59,6 +66,8 @@ class SessionSocketService {
         controller.add(grupoFromJson(Map<String, dynamic>.from(data)));
       }
     });
+
+    socket.on('financeiro:atualizado', (_) => _financeiro.add(null));
 
     socket.connect();
     return controller.stream;

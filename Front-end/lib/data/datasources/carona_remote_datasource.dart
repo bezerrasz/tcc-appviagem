@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:dio/dio.dart';
 import 'package:test_tcc/core/config/api_config.dart';
 import 'package:test_tcc/data/datasources/token_storage.dart';
@@ -111,9 +113,69 @@ class CaronaRemoteDatasource {
     }
   }
 
-  /// Conclui a carona (só motorista). Retorna o novo status.
-  Future<StatusCarona> concluir(int idCarona) =>
-      _patchStatus('/caronas/$idCarona/concluir');
+  /// Conclui a carona (só motorista). Retorna o detalhe completo: na
+  /// conclusão o valor de cada passageiro é fixado e a chave Pix liberada.
+  Future<CaronaDetalhe> concluir(int idCarona) async {
+    try {
+      final response = await _dio.patch('/caronas/$idCarona/concluir');
+      return _detalheFromJson(response.data as Map<String, dynamic>);
+    } on DioException catch (e) {
+      throw _mapError(e);
+    }
+  }
+
+  /// Passageiro importa o comprovante do Pix (imagem ou PDF). O backend dá a
+  /// pendência como paga e atualiza os saldos. Retorna o detalhe atualizado.
+  Future<CaronaDetalhe> enviarComprovante({
+    required int idCarona,
+    required List<int> bytes,
+    required String nomeArquivo,
+    required String mimeType,
+  }) async {
+    try {
+      final form = FormData.fromMap({
+        'comprovante': MultipartFile.fromBytes(
+          bytes,
+          filename: nomeArquivo,
+          contentType: DioMediaType.parse(mimeType),
+        ),
+      });
+      final response = await _dio.post(
+        '/caronas/$idCarona/comprovante',
+        data: form,
+        options: Options(
+          sendTimeout: const Duration(seconds: 30),
+          receiveTimeout: const Duration(seconds: 30),
+        ),
+      );
+      return _detalheFromJson(response.data as Map<String, dynamic>);
+    } on DioException catch (e) {
+      throw _mapError(e);
+    }
+  }
+
+  /// Baixa o comprovante de um passageiro (motorista ou o próprio passageiro).
+  Future<({Uint8List bytes, String contentType})> baixarComprovante({
+    required int idCarona,
+    required int idPassageiro,
+  }) async {
+    try {
+      final response = await _dio.get<List<int>>(
+        '/caronas/$idCarona/passageiros/$idPassageiro/comprovante',
+        options: Options(
+          responseType: ResponseType.bytes,
+          receiveTimeout: const Duration(seconds: 30),
+        ),
+      );
+      return (
+        bytes: Uint8List.fromList(response.data ?? const []),
+        contentType:
+            response.headers.value('content-type') ?? 'application/octet-stream',
+      );
+    } on DioException catch (e) {
+      throw _mapError(e);
+    }
+  }
 
   /// Cancela a carona (só motorista). Retorna o novo status.
   Future<StatusCarona> cancelar(int idCarona) =>
@@ -158,6 +220,7 @@ class CaronaRemoteDatasource {
               idUsuario: p['idUsuario'] as int,
               nome: (p['nome'] as String?) ?? 'Usuário',
               status: statusPassageiroFromString(p['status']),
+              pagamento: _pagamentoFromJson(p['pagamento']),
             ))
         .toList(growable: false);
     return CaronaDetalhe(
@@ -169,6 +232,8 @@ class CaronaRemoteDatasource {
       destino: j['destino'] as String?,
       idMotorista: motorista is Map ? motorista['idUsuario'] as int? : null,
       motoristaNome: motorista is Map ? motorista['nome'] as String? : null,
+      chavePixMotorista:
+          motorista is Map ? motorista['chavePix'] as String? : null,
       carro: carro is Map
           ? CarroCarona(
               idCarro: carro['idCarro'] as int,
@@ -184,6 +249,17 @@ class CaronaRemoteDatasource {
       ocupadas: (j['ocupadas'] as num?)?.toInt() ?? 0,
       passageiros: passageiros,
       custos: _custosFromJson(j['custos']),
+    );
+  }
+
+  PagamentoPassageiro? _pagamentoFromJson(Object? raw) {
+    if (raw is! Map) return null;
+    final data = raw['dataPagamento'] as String?;
+    return PagamentoPassageiro(
+      valor: (raw['valor'] as num?)?.toDouble() ?? 0,
+      pago: raw['pago'] == true,
+      dataPagamento: data == null ? null : DateTime.parse(data).toLocal(),
+      temComprovante: raw['temComprovante'] == true,
     );
   }
 

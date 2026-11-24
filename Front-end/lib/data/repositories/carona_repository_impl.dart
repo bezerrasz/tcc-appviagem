@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:test_tcc/data/datasources/carona_remote_datasource.dart';
 import 'package:test_tcc/domain/entities/carona_detalhe.dart';
 import 'package:test_tcc/domain/entities/carona_item.dart';
@@ -47,7 +49,28 @@ class CaronaRepositoryImpl implements CaronaRepository {
       );
 
   @override
-  Future<StatusCarona> concluir(int idCarona) => remote.concluir(idCarona);
+  Future<CaronaDetalhe> concluir(int idCarona) => remote.concluir(idCarona);
+
+  @override
+  Future<CaronaDetalhe> enviarComprovante({
+    required int idCarona,
+    required List<int> bytes,
+    required String nomeArquivo,
+    required String mimeType,
+  }) =>
+      remote.enviarComprovante(
+        idCarona: idCarona,
+        bytes: bytes,
+        nomeArquivo: nomeArquivo,
+        mimeType: mimeType,
+      );
+
+  @override
+  Future<({Uint8List bytes, String contentType})> baixarComprovante({
+    required int idCarona,
+    required int idPassageiro,
+  }) =>
+      remote.baixarComprovante(idCarona: idCarona, idPassageiro: idPassageiro);
 
   @override
   Future<StatusCarona> cancelar(int idCarona) => remote.cancelar(idCarona);

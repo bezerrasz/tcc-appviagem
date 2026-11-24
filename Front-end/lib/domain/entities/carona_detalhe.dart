@@ -1,15 +1,39 @@
 import 'package:test_tcc/domain/entities/carona_resumo.dart';
 
+/// Pagamento de um passageiro aprovado, definido quando a carona é concluída.
+/// Só vem para o motorista e para o próprio passageiro.
+class PagamentoPassageiro {
+  /// Rateio fixado na conclusão da carona.
+  final double valor;
+
+  /// Comprovante Pix importado (pendência quitada).
+  final bool pago;
+  final DateTime? dataPagamento;
+  final bool temComprovante;
+
+  const PagamentoPassageiro({
+    required this.valor,
+    required this.pago,
+    required this.dataPagamento,
+    required this.temComprovante,
+  });
+}
+
 /// Um passageiro de uma carona, com o status do seu pedido.
 class PassageiroCarona {
   final int idUsuario;
   final String nome;
   final StatusPassageiro status;
 
+  /// Null enquanto a carona não foi concluída, ou quando quem vê não é o
+  /// motorista nem o próprio passageiro.
+  final PagamentoPassageiro? pagamento;
+
   const PassageiroCarona({
     required this.idUsuario,
     required this.nome,
     required this.status,
+    this.pagamento,
   });
 }
 
@@ -89,6 +113,10 @@ class CaronaDetalhe {
   final String? destino;
   final int? idMotorista;
   final String? motoristaNome;
+
+  /// Chave Pix do motorista. Só vem depois da carona concluída, para o
+  /// motorista e os passageiros aprovados (quem tem algo a pagar).
+  final String? chavePixMotorista;
   final CarroCarona? carro;
 
   /// Vagas de passageiro (capacidade - 1) e quantas já ocupadas (aprovados).
@@ -109,6 +137,7 @@ class CaronaDetalhe {
     required this.destino,
     required this.idMotorista,
     required this.motoristaNome,
+    this.chavePixMotorista,
     required this.carro,
     required this.lugares,
     required this.ocupadas,
@@ -131,6 +160,7 @@ class CaronaDetalhe {
       destino: destino,
       idMotorista: idMotorista,
       motoristaNome: motoristaNome,
+      chavePixMotorista: chavePixMotorista,
       carro: carro,
       lugares: lugares,
       ocupadas: ocupadas,

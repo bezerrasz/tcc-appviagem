@@ -5,21 +5,10 @@ const db = require('../models');
 const AppError = require('../utils/app_error');
 const security = require('../config/security');
 const fotoPerfil = require('../utils/foto_perfil');
+const { usuarioPayload } = require('../utils/usuario_payload');
 
 const TIPOS_VALIDOS = db.Usuario.rawAttributes.tipo.values;
-
-// Formato do usuario devolvido ao app (perfil proprio).
-function usuarioPayload(usuario) {
-  return {
-    idUsuario: usuario.idUsuario,
-    nome: usuario.nome,
-    email: usuario.email,
-    tipo: usuario.tipo,
-    dataNascimento: usuario.dataNascimento,
-    valor: Number(usuario.valor),
-    fotoPerfil: usuario.fotoPerfil,
-  };
-}
+const PSTATUS = security.CARONA_PASSAGEIRO_STATUS;
 
 function validar(input) {
   const erros = {};
@@ -102,17 +91,7 @@ async function registrar(req, res) {
       tipo: input.tipo,
     });
 
-    return res.status(201).json({
-      idUsuario: usuario.idUsuario,
-      nome: usuario.nome,
-      email: usuario.email,
-      tipo: usuario.tipo,
-      dataNascimento: usuario.dataNascimento,
-      dataCadastro: usuario.dataCadastro,
-      ativo: usuario.ativo,
-      valor: Number(usuario.valor),
-      fotoPerfil: usuario.fotoPerfil,
-    });
+    return res.status(201).json(usuarioPayload(usuario));
   } catch (err) {
     if (err instanceof AppError) {
       const status = err.type === 'CONFLICT' ? 409 : 400;
@@ -145,8 +124,9 @@ function idadeEm(dataNasc) {
     - (hoje < new Date(hoje.getFullYear(), dataNasc.getMonth(), dataNasc.getDate()) ? 1 : 0);
 }
 
-// Atualiza o proprio perfil: e-mail e data de nascimento (tela de perfil) e o
-// saldo (tela Inicio). Aceita atualizacao parcial (um campo por vez).
+// Atualiza o proprio perfil: e-mail, data de nascimento e chave Pix. Aceita
+// atualizacao parcial (um campo por vez). Os saldos nao sao editaveis: so
+// mudam quando um comprovante Pix e importado.
 async function atualizarMe(req, res) {
   try {
     const idUsuario = req.user.idUsuario;
@@ -182,18 +162,13 @@ async function atualizarMe(req, res) {
       }
     }
 
-    // Saldo: o usuario simplesmente informa quanto tem (sem transacao
-    // bancaria), entao a unica regra e a faixa aceita.
-    if (req.body.valor !== undefined) {
-      const valor = Number(req.body.valor);
-      if (
-        !Number.isFinite(valor)
-        || valor < security.SALDO_MIN
-        || valor > security.SALDO_MAX
-      ) {
-        erros.valor = `Valor deve estar entre ${security.SALDO_MIN} e ${security.SALDO_MAX}.`;
+    // Chave Pix: texto livre (CPF, celular, e-mail ou aleatoria). Vazio remove.
+    if (req.body.chavePix !== undefined) {
+      const chave = String(req.body.chavePix || '').trim();
+      if (chave.length > security.CHAVE_PIX_MAX) {
+        erros.chavePix = `Chave Pix deve ter no maximo ${security.CHAVE_PIX_MAX} caracteres.`;
       } else {
-        mudancas.valor = Math.round(valor * 100) / 100;
+        mudancas.chavePix = chave || null;
       }
     }
 
@@ -294,8 +269,11 @@ async function atualizarFoto(req, res) {
     const anterior = usuario.fotoPerfil;
     await usuario.update({ fotoPerfil: arquivo.filename });
     // So apaga a antiga depois de gravar a nova no banco: se o update falhar,
-    // o usuario continua com a foto que tinha.
-    await fotoPerfil.remover(anterior);
+    // o usuario continua com a foto que tinha. Dois envios no mesmo
+    // milissegundo geram o mesmo nome; nesse caso a "antiga" e a atual.
+    if (anterior !== arquivo.filename) {
+      await fotoPerfil.remover(anterior);
+    }
 
     return res.status(200).json(usuarioPayload(usuario));
   } catch (err) {
@@ -316,4 +294,81 @@ async function atualizarFoto(req, res) {
   }
 }
 
-module.exports = { registrar, buscar, atualizarMe, atualizarFoto };
+// Resumo financeiro do proprio usuario (tela Inicio):
+//   - saldoPago / saldoRecebido: totais ja pagos/recebidos via Pix;
+//   - aReceber: cada pagamento pendente das caronas que ele conduziu e ja
+//     concluiu (por passageiro e carona), com o total pendente;
+//   - totalGeral: saldoRecebido + total pendente.
+async function financeiro(req, res) {
+  try {
+    const usuario = await db.Usuario.findByPk(req.user.idUsuario, {
+      attributes: ['idUsuario', 'saldoPago', 'saldoRecebido'],
+    });
+    if (!usuario) {
+      throw AppError.notFound('Usuario nao encontrado.');
+    }
+
+    const { Op } = db.Sequelize;
+    const pendentes = await db.CaronaUsuario.findAll({
+      where: {
+        status: PSTATUS.APROVADO,
+        dataPagamento: null,
+        valorDevido: { [Op.gt]: 0 },
+      },
+      include: [
+        {
+          model: db.Carona,
+          as: 'carona',
+          required: true,
+          where: {
+            idMotorista: usuario.idUsuario,
+            status: security.CARONA_STATUS.CONCLUIDA,
+            ativo: true,
+          },
+          attributes: ['idCarona', 'data', 'destino'],
+          include: [{ model: db.Grupo, as: 'grupo', attributes: ['nome'] }],
+        },
+        { model: db.Usuario, as: 'passageiro', attributes: ['idUsuario', 'nome'] },
+      ],
+      order: [[{ model: db.Carona, as: 'carona' }, 'data', 'DESC'], ['idPivot', 'ASC']],
+    });
+
+    const aReceber = pendentes.map((p) => ({
+      idCarona: p.carona.idCarona,
+      data: p.carona.data,
+      destino: p.carona.destino,
+      grupoNome: p.carona.grupo ? p.carona.grupo.nome : null,
+      idPassageiro: p.idPassageiro,
+      passageiroNome: p.passageiro ? p.passageiro.nome : null,
+      valor: Number(p.valorDevido),
+    }));
+
+    // Soma em centavos para nao acumular erro de ponto flutuante.
+    const centavos = (v) => Math.round(v * 100);
+    const totalAReceber = aReceber.reduce((s, i) => s + centavos(i.valor), 0) / 100;
+    const saldoRecebido = Number(usuario.saldoRecebido) || 0;
+
+    return res.status(200).json({
+      saldoPago: Number(usuario.saldoPago) || 0,
+      saldoRecebido,
+      aReceber,
+      totalAReceber,
+      totalGeral: (centavos(saldoRecebido) + centavos(totalAReceber)) / 100,
+    });
+  } catch (err) {
+    if (err instanceof AppError) {
+      return res.status(err.httpStatus).json({
+        error: err.type,
+        message: err.message,
+        details: err.details,
+      });
+    }
+    console.error('[usuario_controller.financeiro]', err);
+    return res.status(500).json({
+      error: 'INTERNAL',
+      message: 'Erro interno ao carregar o resumo financeiro.',
+    });
+  }
+}
+
+module.exports = { registrar, buscar, atualizarMe, atualizarFoto, financeiro };

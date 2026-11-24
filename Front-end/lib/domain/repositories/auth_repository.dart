@@ -1,3 +1,4 @@
+import 'package:test_tcc/domain/entities/resumo_financeiro.dart';
 import 'package:test_tcc/domain/entities/user.dart';
 
 abstract class AuthRepository {
@@ -15,8 +16,10 @@ abstract class AuthRepository {
   Future<User> atualizarPerfil({
     String? email,
     DateTime? dataNascimento,
-    double? valor,
+    String? chavePix,
   });
+
+  Future<ResumoFinanceiro> financeiro();
 
   Future<User> atualizarFoto({
     required List<int> bytes,

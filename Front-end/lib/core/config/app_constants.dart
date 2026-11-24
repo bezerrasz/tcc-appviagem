@@ -18,9 +18,9 @@ class AppConstants {
   static final RegExp carroPlacaRegex =
       RegExp(r'^[A-Z]{3}[0-9][0-9A-Z][0-9]{2}$');
 
-  // Saldo do usuário (tela Início). Faixa aceita pelo backend.
-  static const double saldoMin = 0;
-  static const double saldoMax = 999999.99;
+  // Chave Pix: até 77 caracteres (a maior chave, e-mail). Espelha
+  // CHAVE_PIX_MAX no backend.
+  static const int chavePixMax = 77;
 
   // Custos da viagem informados pelo motorista. O total e o rateio são
   // calculados no backend; aqui só validamos o formulário.
@@ -31,4 +31,14 @@ class AppConstants {
 
   // Foto de perfil (espelha FOTO_PERFIL_* em config/security.js no backend).
   static const int fotoPerfilTamanhoMax = 5 * 1024 * 1024;
+
+  // Comprovante Pix: imagem ou PDF (espelha COMPROVANTE_* no backend).
+  static const int comprovanteTamanhoMax = 5 * 1024 * 1024;
+  static const List<String> comprovanteExtensoes = [
+    'jpg',
+    'jpeg',
+    'png',
+    'webp',
+    'pdf',
+  ];
 }

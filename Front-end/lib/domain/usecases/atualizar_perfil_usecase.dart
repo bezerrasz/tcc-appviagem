@@ -4,7 +4,7 @@ import 'package:test_tcc/domain/entities/user.dart';
 import 'package:test_tcc/domain/failures/auth_failure.dart';
 import 'package:test_tcc/domain/repositories/auth_repository.dart';
 
-/// Edita o próprio perfil (e-mail, data de nascimento e/ou saldo). Valida no
+/// Edita o próprio perfil (e-mail, data de nascimento e/ou chave Pix). Valida no
 /// cliente antes de chamar o backend (que revalida e checa unicidade do e-mail).
 class AtualizarPerfilUseCase {
   final AuthRepository repository;
@@ -14,9 +14,9 @@ class AtualizarPerfilUseCase {
   Future<User> call({
     String? email,
     DateTime? dataNascimento,
-    double? valor,
+    String? chavePix,
   }) async {
-    if (email == null && dataNascimento == null && valor == null) {
+    if (email == null && dataNascimento == null && chavePix == null) {
       throw const EmptyFieldsFailure();
     }
 
@@ -32,16 +32,17 @@ class AtualizarPerfilUseCase {
       throw const UnderageFailure();
     }
 
-    // Saldo é só um número informado pelo usuário; a única regra é a faixa.
-    if (valor != null &&
-        (valor < AppConstants.saldoMin || valor > AppConstants.saldoMax)) {
-      throw const InvalidSaldoFailure();
+    // Chave Pix é texto livre (CPF, celular, e-mail ou aleatória); vazia
+    // remove a chave. A única regra é o tamanho.
+    final chaveLimpa = chavePix?.trim();
+    if (chaveLimpa != null && chaveLimpa.length > AppConstants.chavePixMax) {
+      throw const InvalidChavePixFailure();
     }
 
     return repository.atualizarPerfil(
       email: emailLimpo,
       dataNascimento: dataNascimento,
-      valor: valor,
+      chavePix: chaveLimpa,
     );
   }
 

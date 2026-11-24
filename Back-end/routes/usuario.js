@@ -12,5 +12,7 @@ router.post('/usuarios', usuarioController.registrar);
 router.patch('/usuarios/me', authenticate, usuarioController.atualizarMe);
 // Foto de perfil: multipart/form-data com a imagem no campo "foto".
 router.put('/usuarios/me/foto', authenticate, receberFoto, usuarioController.atualizarFoto);
+// Saldos pago/recebido e pagamentos pendentes das caronas que conduziu.
+router.get('/usuarios/me/financeiro', authenticate, usuarioController.financeiro);
 
 module.exports = router;

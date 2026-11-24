@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:test_tcc/core/config/app_constants.dart';
 import 'package:test_tcc/domain/entities/carona_detalhe.dart';
 import 'package:test_tcc/domain/entities/carona_resumo.dart';
 import 'package:test_tcc/domain/failures/grupo_failure.dart';
@@ -131,10 +132,97 @@ class CaronaDetalheController extends ChangeNotifier {
             valorLitro: valorLitro,
           ));
 
-  Future<bool> concluir() => _agirStatus(() => _repo.concluir(idCarona));
+  /// Conclui: o backend fixa o valor de cada passageiro e libera a chave Pix,
+  /// por isso o detalhe inteiro é recarregado (não só o status).
+  Future<bool> concluir() => _mutarDetalhe(() => _repo.concluir(idCarona));
   Future<bool> cancelar() => _agirStatus(() => _repo.cancelar(idCarona));
 
-  // Ação que devolve o detalhe atualizado (pedir/cancelarPedido). Usa o flag
+  /// Meu vínculo nesta carona como passageiro (null se não pedi / sou o
+  /// motorista).
+  PassageiroCarona? get meuVinculo {
+    final d = _detalhe;
+    if (d == null) return null;
+    for (final p in d.passageiros) {
+      if (p.idUsuario == currentUserId) return p;
+    }
+    return null;
+  }
+
+  /// Posso importar o comprovante: carona concluída, fui aprovado, tenho
+  /// valor a pagar e ainda não paguei.
+  bool get podeEnviarComprovante {
+    final pg = meuVinculo?.pagamento;
+    return _detalhe?.status == StatusCarona.concluida &&
+        meuStatus == StatusPassageiro.aprovado &&
+        pg != null &&
+        !pg.pago &&
+        pg.valor > 0;
+  }
+
+  /// Envia o comprovante do Pix (imagem ou PDF até 5 MB). O formato vem da
+  /// assinatura do arquivo, não da extensão.
+  Future<bool> enviarComprovante(List<int> bytes) async {
+    if (bytes.length > AppConstants.comprovanteTamanhoMax) {
+      _error = 'O comprovante deve ter no máximo 5 MB.';
+      notifyListeners();
+      return false;
+    }
+    final tipo = _tipoComprovante(bytes);
+    if (tipo == null) {
+      _error = 'Formato inválido. Envie uma imagem (JPG, PNG, WEBP) ou PDF.';
+      notifyListeners();
+      return false;
+    }
+    return _mutarDetalhe(() => _repo.enviarComprovante(
+          idCarona: idCarona,
+          bytes: bytes,
+          nomeArquivo: 'comprovante${tipo.ext}',
+          mimeType: tipo.mime,
+        ));
+  }
+
+  /// Baixa o comprovante de um passageiro. Null em falha ([error] explica).
+  Future<({Uint8List bytes, String contentType})?> baixarComprovante(
+    int idPassageiro,
+  ) async {
+    try {
+      final arquivo = await _repo.baixarComprovante(
+        idCarona: idCarona,
+        idPassageiro: idPassageiro,
+      );
+      _error = null;
+      return arquivo;
+    } on GrupoFailure catch (f) {
+      _error = f.message;
+      return null;
+    }
+  }
+
+  /// JPEG FF D8 FF; PNG 89 50 4E 47; WEBP "RIFF"...."WEBP"; PDF "%PDF-".
+  ({String mime, String ext})? _tipoComprovante(List<int> b) {
+    String ascii(int ini, int fim) =>
+        b.length >= fim ? String.fromCharCodes(b.sublist(ini, fim)) : '';
+    if (b.length >= 3 && b[0] == 0xFF && b[1] == 0xD8 && b[2] == 0xFF) {
+      return (mime: 'image/jpeg', ext: '.jpg');
+    }
+    if (b.length >= 4 &&
+        b[0] == 0x89 &&
+        b[1] == 0x50 &&
+        b[2] == 0x4E &&
+        b[3] == 0x47) {
+      return (mime: 'image/png', ext: '.png');
+    }
+    if (ascii(0, 4) == 'RIFF' && ascii(8, 12) == 'WEBP') {
+      return (mime: 'image/webp', ext: '.webp');
+    }
+    if (ascii(0, 5) == '%PDF-') {
+      return (mime: 'application/pdf', ext: '.pdf');
+    }
+    return null;
+  }
+
+  // Ação que devolve o detalhe atualizado (pedir, custos, concluir,
+  // comprovante...). Usa o flag
   // global [agindo] para desabilitar a barra de ações enquanto roda.
   Future<bool> _mutarDetalhe(Future<CaronaDetalhe> Function() acao) async {
     if (_agindo) return false;
